@@ -1,6 +1,7 @@
 RNG_SEED 1
 
 # population parameters
+nGENERATIONS 2
 nPOPULATIONS 4
 
 nDEMOGRAPHIC_CHANGES 3

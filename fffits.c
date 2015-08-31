@@ -24,7 +24,6 @@ const char *version = "ffits1.0.0";
 #define nLINKAGE_GROUPS_DEFAULT 2 // # of independently assorting units
 #define nGENERATIONS_DEFAULT 10
 #define nPOPULATIONS_DEFAULT 3 // # islands/metapopulations/demes
-#define PLOIDY 2 // diploid
 #define MU_DEFAULT 1E-9 // per base mutation rate per meiosis per generation
 #define MIGRATION_RATE_DEFAULT 0.01
 #define K_DEFAULT 1000.0
@@ -53,11 +52,12 @@ double PROBABILITY_SITE_POS = PROBABILITY_SITE_SELECTED_DEFAULT;
 double PROBABILITY_SITE_BGS = PROBABILITY_SITE_SELECTED_DEFAULT;
 double PROBABILITY_SITE_NEUTRAL;
 
-short int *genotypes0, *genotypes1; // pointer to memory blocks for individual genotypes
+short int *genotypes0, *genotypes1, *gts; // pointer to memory blocks for individual genotypes
+int *locations; // locations in discrete space of individuals
 unsigned long long int *variableSiteIndexes, *siteIndexes, *SFScounts, *alleleCounts; // pointers for memory blocks for sites in genome
 double *alleleFrequencies, *migrationRates, *K_VALUES, *M_VALUES, *selectionCoefficients;
 _Bool *siteIsVariable;
-short int currentBlock = 1; // keep track of which block is in use
+short int currentBlock = 0; // keep track of which block is in use
 unsigned long long int blockSizes[2];
 long int t; // time counter
 long int N; // current total population size
@@ -65,13 +65,16 @@ long int *abundances; // size of each population
 unsigned long long int nVariableSites = 0;
 _Bool VERBOSE = 0;
 
-// site classifications
+// site classifications and magic numbers
 int *siteClassifications;
 #define nSITE_TYPES 4
 #define SITE_CLASS_NEUTRAL 0
 #define SITE_CLASS_BGS 1 // background selection
 #define SITE_CLASS_POS 2 // positive selection
 #define SITE_CLASS_DIV 3 // divergent selection
+#define ALLELE_CODE_ANCESTRAL 0
+#define ALLELE_CODE_DERIVED 1
+#define PLOIDY 2 // diploid
 
 
 
@@ -199,6 +202,7 @@ void finalTasks(void)
     free(M_VALUES);
     free(abundances);
     free(selectionCoefficients);
+    free(locations);
     
     printf("\nPlease check code to make sure all malloc() are freed\n");
 }
@@ -264,6 +268,11 @@ unsigned readInParametersFromFile(void)
             fscanf(pfile, "%i", &RNG_SEED);
             if ( VERBOSE )
                 printf("Found RNG_SEED (%s) = %u\n", option, RNG_SEED);
+        }
+        else if ( !strcmp( option, "nGENERATIONS" ) ) { // set RNG seed value
+            fscanf(pfile, "%li", &nGENERATIONS);
+            if ( VERBOSE )
+                printf("Found nGENERATIONS (%s) = %li\n", option, nGENERATIONS);
         }
         else if ( !strcmp( option, "nPOPULATIONS" ) ) { // set number of populations
             fscanf(pfile, "%i", &nPOPULATIONS);
@@ -639,7 +648,8 @@ void setUpGenome(void)
     
     // now randomly assign frequencies
     alleleFrequencies = (double *) malloc( nSITES * sizeof(double)); // frequencies (0 to 1) by site
-    alleleCounts = (unsigned long long int *) malloc( nSITES * sizeof(double));
+    alleleCounts = (unsigned long long int *) malloc( nSITES * sizeof(unsigned long long int));
+    memset( alleleCounts, 0, nSITES * sizeof(unsigned long long int) );
     SFScounts = (unsigned long long int *) malloc( PLOIDY * N * sizeof(unsigned long long int) );
     setUpInitialAlleleFrequencies(expectedFreq);
     
@@ -751,10 +761,10 @@ void setUpGenome(void)
     unsigned long long int focalSiteIndex;
     int SiteClassCode;
     initialFreqs = fopen("InitialAlleleFreqs.csv", "w");
-    fprintf(initialFreqs, "SiteIndex,DerivedAlleleCount,DerivedAlleleFreq,SiteClassCode,SiteClassName\n");
+    fprintf(initialFreqs, "SiteIndex,DerivedAlleleCount,DerivedAlleleFreq,SelectionCoefficient,SiteClassCode,SiteClassName\n");
     for ( foo = 0; foo < nVariableSites; foo++ ) {
         focalSiteIndex = *(variableSiteIndexes + foo);
-        fprintf(initialFreqs, "%llu,%llu,%E", focalSiteIndex, alleleCounts[focalSiteIndex], alleleFrequencies[focalSiteIndex] );
+        fprintf(initialFreqs, "%llu,%llu,%E,%E", focalSiteIndex, alleleCounts[focalSiteIndex], alleleFrequencies[focalSiteIndex], selectionCoefficients[focalSiteIndex] );
         SiteClassCode = siteClassifications[focalSiteIndex];
         fprintf(initialFreqs, ",%i", SiteClassCode);
         if ( SiteClassCode == SITE_CLASS_BGS )
@@ -786,8 +796,8 @@ void setUpGenome(void)
     
     free(expectedFreq);
     
-    printf("\nWarning: setUpGenome() not done yet.  Still need to set selection coefficients.\n");
-    exit(0);
+    //printf("\nWarning: setUpGenome() not done yet.  Still need to set selection coefficients.\n");
+    //exit(0);
 }
 
 
@@ -842,21 +852,98 @@ void setUpInitialAlleleFrequencies(double *expectedFreq)
 
 void setUpPopulations(void)
 {
-    unsigned long long int neededSize;
+    unsigned long long int neededSize, focalSiteIndex;
     int i;
+    unsigned long long int j, k, index, counter, siteAlleleCount;
+    unsigned long long int choiceVector[(PLOIDY * N)], allelesToSwitch[(PLOIDY * N)];
+    short int *sipt;
     
+    // allocate space for genotypes and keep track of how big they are in memory
     neededSize = PLOIDY * N * sizeof(short int) * nVariableSites;
     genotypes0 = (short int *) malloc( neededSize );
     genotypes1 = (short int *) malloc( neededSize );
+    currentBlock = 0;
+    gts = genotypes0;
     blockSizes[0] = neededSize;
     blockSizes[1] = neededSize;
+    memset(genotypes0, ALLELE_CODE_ANCESTRAL, neededSize);
+    memset(genotypes1, ALLELE_CODE_ANCESTRAL, neededSize);
     
+    // make array of abundances in subpopulations
     abundances = (long int *) malloc( nPOPULATIONS * sizeof( long int ) );
     for ( i = 0; i < nPOPULATIONS; i++ )
         abundances[i] = K_VALUES[i]; // initialize with populations at current carrying capacity
     
-    printf("\nWarning: setUpPopulations() not written yet!\n");
+    // set locations of individuals
+    locations = (int *) malloc( N * sizeof(int) );
+    counter = 0;
+    for ( i = 0; i < nPOPULATIONS; i++ ) {
+        for ( j = 0; j < abundances[i]; j++ ) {
+            locations[counter] = i;
+            counter++;
+        }
+    }
     
+    // make a choice vector for choosing which alleles in which genotypes to change from zeros to ones
+    counter = 0;
+    for ( j = 0; j < N; j++ ) { // individuals' genotypes
+        for ( i = 0; i < PLOIDY; i++ ) { // the two copies each individual has
+            /* the sequence of choices needs to be: 0,1, PLOIDY * nVariableSites, PLOIDY*nVariableSites + 1, 2*PLOIDY*nVariableSites, 2*PLOIDY*nVariableSites + 1, etc... */
+            choiceVector[counter] = (j * PLOIDY * nVariableSites) + i;
+            counter++;
+        }
+    }
+    
+    for ( j = 0; j < nVariableSites; j++ ) {
+        focalSiteIndex = variableSiteIndexes[j];
+        siteAlleleCount = alleleCounts[focalSiteIndex];
+        if ( siteAlleleCount <= 0 || siteAlleleCount >= (PLOIDY * N) ) {
+            printf("\nError in setUpPopulations():\n\tsiteAlleleCount (= %llu) out of bounds.\n", siteAlleleCount);
+            exit(-1);
+        }
+            
+        // int gsl_ran_choose (const gsl_rng * r, void * dest, size_t k, void * src, size_t n, size_t size)
+        gsl_ran_choose( rngState, allelesToSwitch, siteAlleleCount, choiceVector, (PLOIDY * N), sizeof(unsigned long long int) );
+        
+        for ( k = 0; k < siteAlleleCount; k++ ) {
+            // index into genotypes array
+            // genotypes array: each individual = PLOIDY * nVariableSites consecutive entries
+            // two adjacent entries are the two entries for the two alleles an individual has at that locus
+            // need to add "1" allele at jth locus for each of selected genotypes that get a derived allele copy
+            // hence, index of jth locus in kth genotype copy is:
+            index = (PLOIDY * j) + allelesToSwitch[k]; // kth genotype copy of jth locus to add allele to
+            *(gts + index) = ALLELE_CODE_DERIVED; // derived allele
+        }
+        
+    }
+    
+    
+    //printf("\nWarning: setUpPopulations() not finished yet!\n");
+    
+    FILE *initgts;
+    initgts = fopen("InitialGenotypes.csv", "w");
+    fprintf(initgts, "Locus0Copy0,Locus0Copy1");
+    for ( k = 1; k < nVariableSites; k++ ) {
+        for ( i = 0; i < PLOIDY; i++ ) {
+            fprintf(initgts, ",Locus%lluCopy%i", k, i);
+        }
+    }
+    fprintf(initgts,"\n");
+    
+    sipt = gts;
+    for ( k = 0; k < N; k++ ) {
+        fprintf(initgts, "%i", *sipt);
+        sipt++;
+        for ( j = 1; j < (PLOIDY * nVariableSites); j++ ) {
+            fprintf(initgts, ",%i", *sipt);
+            sipt++;
+        }
+        fprintf(initgts, "\n");
+    }
+    fclose(initgts);
+    
+    
+    //exit(0);
 }
 
 
