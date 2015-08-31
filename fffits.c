@@ -64,6 +64,9 @@ long int N; // current total population size
 long int *abundances; // size of each population
 unsigned long long int nVariableSites = 0;
 _Bool VERBOSE = 0;
+int currentMigrationPeriod = 0;
+int currentDemographyPeriod = 0;
+double *migRatePt, *KvalPt;
 
 // site classifications and magic numbers
 int *siteClassifications;
@@ -227,7 +230,106 @@ void initializeRNG(unsigned int RNG_SEED)
 
 void migration(void)
 {
+    long int i, j, counter, focalTime, nhere, nmoving, mover;
+    double cumulativeM, numberLine[nPOPULATIONS], dum, *dpt;
+    long int choiceVector[N], thoseMoving[N], immigrants[nPOPULATIONS], emigrants[nPOPULATIONS];
+    int chosen, dumi;
+    
+    for ( i = 0; i < N; i++ )
+        choiceVector[i] = i;
+    for ( i = 0; i < nPOPULATIONS; i++ ) {
+        immigrants[i] = 0;
+        emigrants[i] = 0;
+    }
+    
+    // check to see if now is a time to change migration rates
+    if ( nMIGRATION_CHANGES > 0 ) {
+        focalTime = MIGRATION_CHANGE_TIMES[currentMigrationPeriod];
+        if ( t == focalTime ) {
+            migRatePt += ( nPOPULATIONS * nPOPULATIONS );
+            currentMigrationPeriod++;
+        }
+    }
+    
+    counter = 0;
+    for ( i = 0; i < nPOPULATIONS; i++ ) {
+        nhere = abundances[i]; // abundance in subpopulation i
+        if ( nhere > 0 ) {
+            cumulativeM = *(migRatePt + (i * nPOPULATIONS)); // first entry in ith "row" of current migration matrix
+            numberLine[0] = cumulativeM;
+            for ( j = 1; j < nPOPULATIONS; j++ ) {
+                cumulativeM += (*(migRatePt + (i * nPOPULATIONS) + j));
+                numberLine[j] = cumulativeM;
+            }
+            for ( j = 0; j < nPOPULATIONS; j++ )
+                numberLine[j] = numberLine[j] / cumulativeM; // normalize
+            
+            if ( cumulativeM > 0.0 ) {
+                
+                // determine how many migrate: stochastic
+                nmoving = gsl_ran_binomial(rngState, cumulativeM, nhere);
+                
+                if ( nmoving > 0 ) {
+                    // determine which ones migrate: stochastic
+                    // int gsl_ran_choose (const gsl_rng * r, void * dest, size_t k, void * src, size_t n, size_t size)
+                    gsl_ran_choose( rngState, thoseMoving, nmoving, choiceVector, nhere, sizeof(long int) );
+                    
+                    for ( j = 0; j < nmoving; j++ ) {
+                        dum = gsl_rng_uniform( rngState );
+                        dpt = numberLine;
+                        dumi = 0;
+                        while ( (*dpt) < dum && dumi < nPOPULATIONS) {
+                            dpt++;
+                            dumi++;
+                        }
+                        
+                        if ( i == dumi ) {
+                            fprintf(stderr, "\nError in migration():\n\tmigrator moving to same patch it is already in.\n\tNeed to fix algorithm\n");
+                            exit(-1);
+                        }
+                        
+                        mover = thoseMoving[j];
+                        if ( *(locations + counter + mover) != i ) {
+                            fprintf(stderr, "\nError in migration():\n\tYour mover isn't where you think she is.\n\tNeed to fix algorithm\n");
+                            exit(-1);
+                        }
+                        *(locations + counter + mover) = dumi;
+                        
+                        immigrants[dumi] = immigrants[dumi] + 1;
+                        emigrants[i] = emigrants[i] + 1;
+                        
+                    }
+                    
+                }
+            }
+        }
+        counter += nhere;
+    }
+    
+    if ( VERBOSE ) {
+        printf("\nAbundances before migration:\n");
+        for ( i = 0; i < nPOPULATIONS; i++ )
+            printf("\t%li", abundances[i]);
+        printf("\nEmigrants:\n");
+        for ( i = 0; i < nPOPULATIONS; i++ )
+            printf("\t%li", emigrants[i]);
+        printf("\nImmigrants:\n");
+        for ( i = 0; i < nPOPULATIONS; i++ )
+            printf("\t%li", immigrants[i]);
+        
+        printf("\nAbundances after migration:\n");
+    }
+    for ( i = 0; i < nPOPULATIONS; i++ ) {
+        abundances[i] = abundances[i] + immigrants[i] - emigrants[i];
+    }
+    if ( VERBOSE ) {
+        for ( i = 0; i < nPOPULATIONS; i++ )
+            printf("\t%li", abundances[i]);
+    }
+    
+    
     printf("\nWarning: migration() not written yet!\n");
+    exit(0);
 }
 
 
@@ -561,6 +663,8 @@ unsigned readInParametersFromFile(void)
             }
         }
     }
+    KvalPt = K_VALUES;
+    migRatePt = M_VALUES;
     
     
     /* printf("\nWarning: not done writing readInParametersFromFile().\nNeed to write code for cases when paramters are left out.\nAnd probably other stuff too.\n\n"); */
