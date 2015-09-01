@@ -51,6 +51,9 @@ double PROBABILITY_SITE_DIV = PROBABILITY_SITE_SELECTED_DEFAULT;
 double PROBABILITY_SITE_POS = PROBABILITY_SITE_SELECTED_DEFAULT;
 double PROBABILITY_SITE_BGS = PROBABILITY_SITE_SELECTED_DEFAULT;
 double PROBABILITY_SITE_NEUTRAL;
+int ENVIRONMENT_TYPE = 0, FITNESS_MODEL = 0; // defaults for how selection works; magic numbers defined below
+double *environmentGradient, ENVT_MAX = 1.0, ENVT_MIN = -1.0;
+long int nSelectedSites;
 
 short int *genotypes0, *genotypes1, *gts; // pointer to memory blocks for individual genotypes
 int *locations; // locations in discrete space of individuals
@@ -78,13 +81,18 @@ int *siteClassifications;
 #define ALLELE_CODE_ANCESTRAL 0
 #define ALLELE_CODE_DERIVED 1
 #define PLOIDY 2 // diploid
-
-
+#define ENVT_TYPE_GRADIENT 0
+#define ENVT_TYPE_MOSAIC 1
+#define ENVT_TYPE_INVARIANT 2
+#define CODOMINANCE 0.5 // codominant effects of alleles in diploid genotypes
+#define FITNESS_MODEL_ADDITIVE 0
+#define FITNESS_MODEL_MULTIPLICATIVE 1
 
 
 // function declarations
-int calculateNumOffspring(int pop);
+long int calculateNumOffspring(int pop);
 short int * checkMemoryBlocks(int totalOffspring);
+void computeFitness(double *fitnessValues);
 void finalTasks(void);
 void initializeRNG(unsigned int RNG_SEED);
 void migration(void);
@@ -96,7 +104,7 @@ void setUpGenome(void);
 void setUpInitialAlleleFrequencies(double *expectedFreq);
 void setUpPopulations(void);
 void usage(char *progname);
-void viabilitySelection(void);
+//void viabilitySelection(void);
 void wrongParametersIniOption(char *expected, char *previous, char *found);
 
 
@@ -130,9 +138,7 @@ int main(int argc, char *argv[])
 
         migration();
         
-        viabilitySelection();
-        
-        reproduction();
+        reproduction(); // includes fecundity selection
         
     }
     
@@ -141,11 +147,28 @@ int main(int argc, char *argv[])
 }
 
 
-int calculateNumOffspring(int pop)
+long int calculateNumOffspring(int pop)
 {
-    int numOffspring = 0;
+    long int numOffspring = 0, focalTime;
+    double expected, currentPop, k;
     
-    printf("\nWarning: calculateNumOffspring() not written yet!\n");
+    // check to see if now is a time to change demographic parameters
+    if ( nDEMOGRAPHIC_CHANGES > 0 ) {
+        focalTime = DEMOGRAPHIC_CHANGE_TIMES[currentDemographyPeriod];
+        if ( t == focalTime ) {
+            KvalPt += nPOPULATIONS;
+            currentDemographyPeriod++;
+        }
+    }
+    
+    if ( FIXED_POP_SIZE )
+        numOffspring = (long int) *(KvalPt + pop);
+    else {
+        k = *(KvalPt + pop);
+        currentPop = ((double) *(abundances + pop));
+        expected = currentPop + (currentPop * MAX_POP_GROWTH_RATE * (k - currentPop)/k); // logistic equation
+        numOffspring = gsl_ran_poisson( rngState, expected );
+    }
     
     return numOffspring;
 }
@@ -188,6 +211,104 @@ short int * checkMemoryBlocks(int totalOffspring)
 }
 
 
+void computeFitness(double *fitnessValues)
+{
+    unsigned long long int i, j, selectedSiteIndexesMaster[nSelectedSites];
+    unsigned long long int selectedSiteIndexesLocal[nSelectedSites];
+    double cf_scoeffs[nSelectedSites], *dpt, cf_s, cf_gradient; // prefix cf_ denoting local to this function
+    long int nFound;
+    int cf_siteClass, cf_siteClasses[nSelectedSites], cf_loc;
+    short int *sipt, gtsum;
+    
+    dpt = fitnessValues;
+    for ( i = 0; i < N; i++ ) {
+        *dpt = 1.0;
+        dpt++;
+    }
+    
+    nFound = 0;
+    for ( i = 0; i < nVariableSites; i++ ) {
+        j = *(variableSiteIndexes + i); // focal site master index
+        cf_siteClass = *(siteClassifications + j);
+        if ( cf_siteClass > SITE_CLASS_NEUTRAL ) {
+            cf_siteClasses[nFound] = cf_siteClass;
+            selectedSiteIndexesLocal[nFound] = i;
+            selectedSiteIndexesMaster[nFound] = j;
+            cf_scoeffs[nFound] = *(selectionCoefficients + j);
+            nFound++;
+        }
+    }
+    
+    if ( VERBOSE ) {
+        printf("\nLocal and Master selected site indexes, site type codes, and selection coefficients:\n");
+        for ( i = 0; i < nSelectedSites; i++ )
+            printf("\t%llu\t%llu\t%i\t%f\n", selectedSiteIndexesLocal[i], selectedSiteIndexesMaster[i], cf_siteClasses[i], cf_scoeffs[i]);
+    }
+    
+    for ( i = 0; i < nSelectedSites; i++ ) {
+        sipt = gts + (PLOIDY * selectedSiteIndexesLocal[i]);
+        dpt = fitnessValues;
+        cf_siteClass = cf_siteClasses[i];
+        cf_s = cf_scoeffs[i];
+        for ( j = 0; j < N; j++ ) {
+            gtsum = *sipt + *(sipt + 1); // number of derived alleles at this locus
+            if ( (cf_siteClass == SITE_CLASS_POS || cf_siteClass == SITE_CLASS_BGS) && gtsum ) { // + and - selection handled same
+                if ( FITNESS_MODEL == FITNESS_MODEL_ADDITIVE )
+                    *dpt += ((double) gtsum) * cf_s;
+                else
+                    *dpt *= 1.0 + ((double) gtsum) * cf_s;
+            }
+            else if ( cf_siteClass == SITE_CLASS_DIV ) { // divergent selection requires special handling.
+                cf_loc = *(locations + j);
+                cf_gradient = *(environmentGradient + cf_loc);
+                if ( gtsum == 2 ) { // homozygous derived
+                    if ( FITNESS_MODEL == FITNESS_MODEL_ADDITIVE )
+                        *dpt += 2.0 * cf_s * cf_gradient;
+                    else
+                        *dpt *= 1.0 + (2.0 * cf_s * cf_gradient);
+                }
+                else if ( gtsum == 0 ) { // homozygous ancestral
+                    if ( FITNESS_MODEL == FITNESS_MODEL_ADDITIVE )
+                        *dpt += -2.0 * cf_s * cf_gradient;
+                    else
+                        *dpt *= 1.0 - (2.0 * cf_s * cf_gradient);
+                }
+                else if ( gtsum != 1 ) {
+                    fprintf(stderr, "\nError in computeFitness():\n\tgtsum (= %i) out of bounds.\n", gtsum);
+                    exit(-1);
+                    // heterozygotes are assumed intermediate everywhere, so no fitness change
+                }
+            }
+            else if ( cf_siteClasses == SITE_CLASS_NEUTRAL ) {
+                fprintf(stderr, "\nError in computeFitness():\n\tneutral site made it into calcs.\n");
+                exit(-1);
+            }
+            
+            sipt += PLOIDY * nVariableSites; // advance to locus i in next individual's genotype
+            dpt++; // advance to next individual's fitness
+        }
+    }
+    
+    if ( t == 1 ) {
+        FILE *cf_fitvals;
+        cf_fitvals = fopen("InitialFitnessValues.csv", "w");
+        fprintf(cf_fitvals, "individual,location,fitness\n");
+        for ( i = 0; i < N; i++ ) {
+            fprintf(cf_fitvals, "%llu,%i,%f\n", i, *(locations + i), *(fitnessValues + i));
+        }
+        fclose(cf_fitvals);
+    }
+    dpt = fitnessValues;
+    for ( i = 0; i < N; i++ ) {
+        if ( *dpt < 0.0 ) {
+            *dpt = 0.0;
+            dpt++;
+        }
+    }
+    
+}
+
+
 void finalTasks(void)
 {
     free(genotypes0);
@@ -206,6 +327,7 @@ void finalTasks(void)
     free(abundances);
     free(selectionCoefficients);
     free(locations);
+    free(environmentGradient);
     
     printf("\nPlease check code to make sure all malloc() are freed\n");
 }
@@ -316,20 +438,21 @@ void migration(void)
         printf("\nImmigrants:\n");
         for ( i = 0; i < nPOPULATIONS; i++ )
             printf("\t%li", immigrants[i]);
-        
-        printf("\nAbundances after migration:\n");
     }
+    
     for ( i = 0; i < nPOPULATIONS; i++ ) {
         abundances[i] = abundances[i] + immigrants[i] - emigrants[i];
     }
+    
     if ( VERBOSE ) {
+        printf("\nAbundances after migration:\n");
         for ( i = 0; i < nPOPULATIONS; i++ )
             printf("\t%li", abundances[i]);
     }
     
     
-    printf("\nWarning: migration() not written yet!\n");
-    exit(0);
+    //printf("\nWarning: migration() not written yet!\n");
+    //exit(0);
 }
 
 
@@ -347,7 +470,7 @@ double randExp(double meanValue)
 
 unsigned readInParametersFromFile(void)
 {
-    char c, option[80];
+    char c, option[80], option2[80];
     long int INITIAL_N;
     int i, j, k, dumi, temp;
     unsigned RNG_SEED = 1;
@@ -618,9 +741,52 @@ unsigned readInParametersFromFile(void)
             if ( VERBOSE )
                 printf("Found PROBABILITY_SITE_DIV (%s) = %f\n", option, PROBABILITY_SITE_DIV);
         }
-        
+        else if ( !strcmp( option, "ENVIRONMENT_TYPE"  ) ) { // divergent selection mean coefficient
+            fscanf(pfile, "%s", option2);
+            if ( !strcmp( option2, "GRADIENT" ) )
+                ENVIRONMENT_TYPE = ENVT_TYPE_GRADIENT;
+            else if ( !strcmp( option2, "MOSAIC" ) )
+                ENVIRONMENT_TYPE = ENVT_TYPE_MOSAIC;
+            else if ( !strcmp( option2, "INVARIANT" ) )
+                ENVIRONMENT_TYPE = ENVT_TYPE_INVARIANT;
+            else {
+                fprintf(stderr, "\nError in readInParametersFromFile():\n\tENVIRONMENT_TYPE option (%s) not recognized.", option2);
+                fprintf(stderr, "\n\tUsable options are 'GRADIENT', 'MOSAIC', and 'INVARIANT'.\n\tPlease fix parameters.ini.txt\n");
+                fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
+                exit(-1);
+            }
+            if ( VERBOSE )
+                printf("Found ENVIRONMENT_TYPE (%s) = %s = %i\n", option, option2, ENVIRONMENT_TYPE);
+        }
+        else if ( !strcmp( option, "ENVT_MIN"  ) ) { // divergent selection mean coefficient
+            fscanf(pfile, "%lf", &ENVT_MIN);
+            if ( VERBOSE )
+                printf("Found ENVT_MIN (%s) = %f\n", option, ENVT_MIN);
+        }
+        else if ( !strcmp( option, "ENVT_MAX"  ) ) { // divergent selection mean coefficient
+            fscanf(pfile, "%lf", &ENVT_MAX);
+            if ( VERBOSE )
+                printf("Found ENVT_MAX (%s) = %f\n", option, ENVT_MAX);
+        }
+        else if ( !strcmp( option, "FITNESS_MODEL"  ) ) { // divergent selection mean coefficient
+            fscanf(pfile, "%s", option2);
+            if ( !strcmp( option2, "ADDITIVE" ) )
+                FITNESS_MODEL = FITNESS_MODEL_ADDITIVE;
+            else if ( !strcmp( option2, "MULTIPLICATIVE" ) )
+                FITNESS_MODEL = FITNESS_MODEL_MULTIPLICATIVE;
+            else {
+                fprintf(stderr, "\nError in readInParametersFromFile():\n\tFITNESS_MODEL option (%s) not recognized.", option2);
+                fprintf(stderr, "\n\tUsable options are 'ADDITIVE' and 'MULTIPLICATIVE'.\n\tPlease fix parameters.ini.txt\n");
+                fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
+                exit(-1);
+            }
+            if ( VERBOSE )
+                printf("Found ENVIRONMENT_TYPE (%s) = %s = %i\n", option, option2, FITNESS_MODEL);
+        }
+
         
         option[0] = '\0'; // reset to avoid double setting last option
+        option2[0] = '\0';
     }
     
     fclose(pfile);
@@ -680,20 +846,36 @@ unsigned readInParametersFromFile(void)
 
 void reproduction(void)
 {
-    int i, j, pop, noffspring[nPOPULATIONS], totalOffspring;
+    int pop;
+    long int i, j, noffspring[nPOPULATIONS], totalOffspring;
     short int *offspringGTs, *sipt;
     
-    // first, let's figure out how many offspring we are going to make
+    if ( INCLUDE_SELECTION ) {
+        double fitnessValues[N];
+        computeFitness(fitnessValues);
+    }
+    
     totalOffspring = 0;
     for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
         noffspring[pop] = calculateNumOffspring(pop);
         totalOffspring += noffspring[pop];
     }
     
+    if ( VERBOSE ) {
+        printf("\nNumber of offspring in each deme:\n");
+        for ( i = 0; i < nPOPULATIONS; i++ )
+            printf("\t%li", noffspring[i]);
+        printf("\n");
+    }
+
+    
+    
+    
     // now, get a memory block to use to store the offspring genotypes
     offspringGTs = checkMemoryBlocks(totalOffspring);
     
     printf("\nWarning: reproduction() not finished yet!\n");
+    exit(0);
 }
 
 
@@ -786,15 +968,15 @@ void setUpGenome(void)
         }
         else if ( i == 1 ) {
             *(siteClassifications + foo) = SITE_CLASS_BGS;
-            *(selectionCoefficients + foo) = -(randExp(MEAN_S_BGS));
+            *(selectionCoefficients + foo) = -(randExp(MEAN_S_BGS)) * CODOMINANCE;
         }
         else if ( i == 2 ) {
             *(siteClassifications + foo) = SITE_CLASS_POS;
-            *(selectionCoefficients + foo) = randExp(MEAN_S_POS);
+            *(selectionCoefficients + foo) = randExp(MEAN_S_POS) * CODOMINANCE;
         }
         else if ( i == 3 ) {
             *(siteClassifications + foo) = SITE_CLASS_DIV;
-            *(selectionCoefficients + foo) = randExp(MEAN_S_DIV);
+            *(selectionCoefficients + foo) = randExp(MEAN_S_DIV) * CODOMINANCE;
         }
         else {
             fprintf(stderr, "\nError in setUpGenome():\n\tbogus site type (%li)\n\t*** Exiting ***\n\n", i);
@@ -861,6 +1043,7 @@ void setUpGenome(void)
     fclose(siteDesignations);
     fclose(sd2);
     
+    nSelectedSites = 0;
     FILE *initialFreqs;
     unsigned long long int focalSiteIndex;
     int SiteClassCode;
@@ -868,6 +1051,11 @@ void setUpGenome(void)
     fprintf(initialFreqs, "SiteIndex,DerivedAlleleCount,DerivedAlleleFreq,SelectionCoefficient,SiteClassCode,SiteClassName\n");
     for ( foo = 0; foo < nVariableSites; foo++ ) {
         focalSiteIndex = *(variableSiteIndexes + foo);
+        
+        if ( *(siteClassifications + focalSiteIndex) > SITE_CLASS_NEUTRAL )
+            nSelectedSites++;
+
+        
         fprintf(initialFreqs, "%llu,%llu,%E,%E", focalSiteIndex, alleleCounts[focalSiteIndex], alleleFrequencies[focalSiteIndex], selectionCoefficients[focalSiteIndex] );
         SiteClassCode = siteClassifications[focalSiteIndex];
         fprintf(initialFreqs, ",%i", SiteClassCode);
@@ -885,6 +1073,9 @@ void setUpGenome(void)
         }
     }
     fclose(initialFreqs);
+    
+    if ( VERBOSE )
+        printf("\nnSelectedSites = %li\n", nSelectedSites);
     
     initialFreqs = fopen("InitialSFS.csv", "w");
     fprintf(initialFreqs, "AlleleCount,NumberOfSites\n");
@@ -961,6 +1152,7 @@ void setUpPopulations(void)
     unsigned long long int j, k, index, counter, siteAlleleCount;
     unsigned long long int choiceVector[(PLOIDY * N)], allelesToSwitch[(PLOIDY * N)];
     short int *sipt;
+    double stepSize;
     
     // allocate space for genotypes and keep track of how big they are in memory
     neededSize = PLOIDY * N * sizeof(short int) * nVariableSites;
@@ -1046,6 +1238,33 @@ void setUpPopulations(void)
     }
     fclose(initgts);
     
+    environmentGradient = (double *) malloc( nPOPULATIONS * sizeof(double) );
+    if ( ENVIRONMENT_TYPE == ENVT_TYPE_GRADIENT )
+        stepSize = (ENVT_MAX - ENVT_MIN) / (((double) nPOPULATIONS) - 1.0);
+    for ( i = 0; i < nPOPULATIONS; i++ ) {
+        if ( ENVIRONMENT_TYPE == ENVT_TYPE_GRADIENT )
+            environmentGradient[i] = ENVT_MIN + (((double) i) * stepSize);
+        else if ( ENVIRONMENT_TYPE == ENVT_TYPE_MOSAIC ) {
+            if ( i % 2 )
+                environmentGradient[i] = ENVT_MAX;
+            else
+                environmentGradient[i] = ENVT_MIN;
+        }
+        else if ( ENVIRONMENT_TYPE == ENVT_TYPE_INVARIANT )
+            environmentGradient[i] = 0.0;
+        else {
+            fprintf(stderr, "\nError in setUpPopulations():\n\tENVIRONMENT_TYPE (%i) unrecognized\n", ENVIRONMENT_TYPE);
+            exit(-1);
+        }
+    }
+    if ( VERBOSE ) {
+        printf("\nenvironmentGradient:\n");
+        for ( i = 0; i < nPOPULATIONS; i++ )
+            printf("\t%f", environmentGradient[i]);
+        printf("\n");
+    }
+    
+    
     
     //exit(0);
 }
@@ -1062,10 +1281,19 @@ void usage(char *progname)
 
 
 
-void viabilitySelection(void)
-{
-    printf("\nWarning: viabilitySelection() not written yet!\n");
-}
+//void viabilitySelection(void)
+//{
+//    long int i, j;
+//    double fitnessValues[N];
+//    
+//    memset( fitnessValues, 0, (N * sizeof(double)) );
+//    computeFitness(fitnessValues);
+//    
+//    
+//    
+//    printf("\nWarning: viabilitySelection() not written yet!\n");
+//    exit(0);
+//}
 
 
 void wrongParametersIniOption(char *expected, char *previous, char *found)
