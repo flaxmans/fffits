@@ -193,19 +193,15 @@ short int * checkMemoryBlocks(int totalOffspring)
         if ( offspringBlock ) {
             free( genotypes1 );
             genotypes1 = (short int *) malloc( neededSize );
+            offGT = genotypes1;
         }
         else {
             free( genotypes0 );
             genotypes0 = (short int *) malloc( neededSize );
+            offGT = genotypes0;
         }
         blockSizes[offspringBlock] = neededSize;
     }
-    
-    // choose the right block for the offspring
-    if ( offspringBlock )
-        offGT = genotypes1;
-    else
-        offGT = genotypes0;
     
     return offGT;
 }
@@ -214,10 +210,10 @@ short int * checkMemoryBlocks(int totalOffspring)
 void computeFitness(double *fitnessValues)
 {
     unsigned long long int i, j, selectedSiteIndexesMaster[nSelectedSites];
-    unsigned long long int selectedSiteIndexesLocal[nSelectedSites];
+    unsigned long long int selectedSiteIndexesLocal[nSelectedSites], *ullpt;
     double cf_scoeffs[nSelectedSites], *dpt, cf_s, cf_gradient; // prefix cf_ denoting local to this function
     long int nFound;
-    int cf_siteClass, cf_siteClasses[nSelectedSites], cf_loc;
+    int cf_siteClass, cf_siteClasses[nSelectedSites], *locpt;
     short int *sipt, gtsum;
     
     dpt = fitnessValues;
@@ -227,8 +223,9 @@ void computeFitness(double *fitnessValues)
     }
     
     nFound = 0;
+    ullpt = variableSiteIndexes;
     for ( i = 0; i < nVariableSites; i++ ) {
-        j = *(variableSiteIndexes + i); // focal site master index
+        j = *ullpt; // focal site master index
         cf_siteClass = *(siteClassifications + j);
         if ( cf_siteClass > SITE_CLASS_NEUTRAL ) {
             cf_siteClasses[nFound] = cf_siteClass;
@@ -237,6 +234,7 @@ void computeFitness(double *fitnessValues)
             cf_scoeffs[nFound] = *(selectionCoefficients + j);
             nFound++;
         }
+        ullpt++;
     }
     
     if ( VERBOSE ) {
@@ -246,11 +244,12 @@ void computeFitness(double *fitnessValues)
     }
     
     for ( i = 0; i < nSelectedSites; i++ ) {
-        sipt = gts + (PLOIDY * selectedSiteIndexesLocal[i]);
-        dpt = fitnessValues;
+        sipt = gts + (PLOIDY * selectedSiteIndexesLocal[i]); // first individual, selected site i
+        dpt = fitnessValues; // first individual's fitness score
         cf_siteClass = cf_siteClasses[i];
         cf_s = cf_scoeffs[i];
         for ( j = 0; j < N; j++ ) {
+            locpt = locations;
             gtsum = *sipt + *(sipt + 1); // number of derived alleles at this locus
             if ( (cf_siteClass == SITE_CLASS_POS || cf_siteClass == SITE_CLASS_BGS) && gtsum ) { // + and - selection handled same
                 if ( FITNESS_MODEL == FITNESS_MODEL_ADDITIVE )
@@ -259,8 +258,7 @@ void computeFitness(double *fitnessValues)
                     *dpt *= 1.0 + ((double) gtsum) * cf_s;
             }
             else if ( cf_siteClass == SITE_CLASS_DIV ) { // divergent selection requires special handling.
-                cf_loc = *(locations + j);
-                cf_gradient = *(environmentGradient + cf_loc);
+                cf_gradient = *( environmentGradient + *locpt );
                 if ( gtsum == 2 ) { // homozygous derived
                     if ( FITNESS_MODEL == FITNESS_MODEL_ADDITIVE )
                         *dpt += 2.0 * cf_s * cf_gradient;
@@ -286,6 +284,7 @@ void computeFitness(double *fitnessValues)
             
             sipt += PLOIDY * nVariableSites; // advance to locus i in next individual's genotype
             dpt++; // advance to next individual's fitness
+            locpt++; // advance to next individual's location
         }
     }
     
@@ -293,19 +292,16 @@ void computeFitness(double *fitnessValues)
         FILE *cf_fitvals;
         cf_fitvals = fopen("InitialFitnessValues.csv", "w");
         fprintf(cf_fitvals, "individual,location,fitness\n");
-        for ( i = 0; i < N; i++ ) {
+        for ( i = 0; i < N; i++ )
             fprintf(cf_fitvals, "%llu,%i,%f\n", i, *(locations + i), *(fitnessValues + i));
-        }
         fclose(cf_fitvals);
     }
     dpt = fitnessValues;
     for ( i = 0; i < N; i++ ) {
-        if ( *dpt < 0.0 ) {
+        if ( *dpt < 0.0 )
             *dpt = 0.0;
-            dpt++;
-        }
+        dpt++;
     }
-    
 }
 
 
@@ -868,11 +864,10 @@ void reproduction(void)
         printf("\n");
     }
 
-    
-    
-    
     // now, get a memory block to use to store the offspring genotypes
     offspringGTs = checkMemoryBlocks(totalOffspring);
+    
+    
     
     printf("\nWarning: reproduction() not finished yet!\n");
     exit(0);
@@ -1214,8 +1209,6 @@ void setUpPopulations(void)
     }
     
     
-    //printf("\nWarning: setUpPopulations() not finished yet!\n");
-    
     FILE *initgts;
     initgts = fopen("InitialGenotypes.csv", "w");
     fprintf(initgts, "Locus0Copy0,Locus0Copy1");
@@ -1264,10 +1257,8 @@ void setUpPopulations(void)
         printf("\n");
     }
     
-    
-    
-    //exit(0);
 }
+
 
 
 void usage(char *progname)
