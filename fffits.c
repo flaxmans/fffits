@@ -38,7 +38,7 @@ const char *version = "ffits1.0.0";
 unsigned long long int nSITES = nSITES_DEFAULT;
 long int nGENERATIONS = nGENERATIONS_DEFAULT;
 int nPOPULATIONS = nPOPULATIONS_DEFAULT;
-double MU = MU_DEFAULT;
+double MU = MU_DEFAULT, GENOME_MU;
 int nLINKAGE_GROUPS = nLINKAGE_GROUPS_DEFAULT;
 int nDEMOGRAPHIC_CHANGES;
 long int *DEMOGRAPHIC_CHANGE_TIMES, *MIGRATION_CHANGE_TIMES;
@@ -91,10 +91,12 @@ int *siteClassifications;
 
 // function declarations
 long int calculateNumOffspring(int pop);
-short int * checkMemoryBlocks(int totalOffspring);
+short int * checkMemoryBlocks(long int totalOffspring, long int nNewMutations);
 void computeFitness(double *fitnessValues);
 void finalTasks(void);
 void initializeRNG(unsigned int RNG_SEED);
+void makeCumulativeFitnessNumLines(double *fitnessValues, double *fitnessNumLines, long int *individualsInDeme);
+void makeDemesIndexes(long int *individualsInDeme);
 void migration(void);
 void printParametersToFiles(unsigned RNG_SEED);
 double randExp(double meanValue);
@@ -175,7 +177,7 @@ long int calculateNumOffspring(int pop)
 
 
 
-short int * checkMemoryBlocks(int totalOffspring)
+short int * checkMemoryBlocks(long int totalOffspring, long int nNewMutations)
 {
     short int *offGT;
     int offspringBlock;
@@ -186,7 +188,7 @@ short int * checkMemoryBlocks(int totalOffspring)
     else
         offspringBlock = 1; // current 0, offspring 1
     
-    neededSize = PLOIDY * totalOffspring * nVariableSites * (sizeof(short int));
+    neededSize = PLOIDY * totalOffspring * (nVariableSites + nNewMutations) * (sizeof(short int));
     
     // check if we need bigger memory blocks and allocate if needed
     if ( blockSizes[offspringBlock] < neededSize ) {
@@ -342,6 +344,105 @@ void initializeRNG(unsigned int RNG_SEED)
     
 //    for ( i = 0; i < 10; i++ )
 //        printf("%f\n", gsl_rng_uniform(rngState) );
+}
+
+
+void makeCumulativeFitnessNumLines(double *fitnessValues, double *fitnessNumLines, long int *individualsInDeme)
+{
+    int pop;
+    long int i, j, nhere, *lipt, masterIndex, count;
+    double fitSum, *dptfnl, fitval, *startpt;
+    
+    dptfnl = fitnessNumLines; // ordered for each deme
+    lipt = individualsInDeme; // list of individual indexes in deme
+    count = 0;
+    for ( pop = 0; pop < nPOPULATIONS; pop++ ) { // go population by population
+        startpt = dptfnl; // save starting point in array
+        nhere = abundances[pop]; // get total number here
+        masterIndex = *lipt; // individual's index
+        if ( VERBOSE ) {
+            if ( pop != *(locations + masterIndex) ) {
+                fprintf(stderr, "\nError in makeCumulativeFitnessNumLines():\n\tlocation (%i) doesn't match pop (%i)!\n", *(locations + masterIndex), pop);
+                exit(-1);
+            }
+        }
+            
+        fitval = *(fitnessValues + masterIndex);  // individual's fitness
+        fitSum = fitval; // first individual in deme: set cumulative sum start point
+        *dptfnl = fitval; // save value in fitness number line
+        lipt++; // advance individual indexing pointer
+        dptfnl++; // advance number line pointer
+        
+        for ( i = 1; i < nhere; i++ ) { // start with 1 because 0 done above
+            masterIndex = *lipt; // individual's index
+            fitval = *(fitnessValues + masterIndex); // individual's fitness
+            *dptfnl = *(dptfnl - 1) + fitval; // make number line cumulative;
+            fitSum += fitval; // store total sum
+            lipt++; // advance individual's index pointer
+            dptfnl++; // advance fitness number line pointer
+        }
+        fitSum = 1.0 / fitSum; // now done with this deme's raw numbers; time to normalize
+        for ( i = 0; i < nhere; i++ ) {
+            *startpt *= fitSum;
+            startpt++;
+        }
+    }
+    
+    if ( VERBOSE ) {
+        printf("\n");
+        dptfnl = fitnessNumLines;
+        for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
+            printf("Deme %i, first fit = %f, last fit = %f\n", pop, *dptfnl, *(dptfnl + abundances[pop] - 1));
+            dptfnl++;
+            for ( i = 1; i < abundances[pop]; i++ ) {
+                if ( *dptfnl < *(dptfnl - 1) ) {
+                    printf("\nError in makeCumulativeFitnessNumLines():\n\tDecreasing values in fitness vector:\n\t%f\t%f\n", *dptfnl, *(dptfnl - 1) );
+                    exit(-1);
+                }
+                dptfnl++;
+            }
+        }
+    }
+    
+    printf("\nWarning! makeCumulativeFitnessNumLines() not written yet!\n");
+    exit(0);
+}
+
+
+void makeDemesIndexes(long int *individualsInDeme)
+{
+    // this function makes a vector of consecutive indexes in each deme
+    // this is done because -- at times that this is called -- the individuals are unsorted due to migration
+    // with high migration rates, maybe a sort would actually be more efficient???
+    
+    long int i, j, demePosition[nPOPULATIONS], spot;
+    int *ipt, loc;
+    
+    demePosition[0] = 0;
+    for ( i = 1; i < nPOPULATIONS; i++ )
+        demePosition[i] = demePosition[(i-1)] + abundances[(i-1)];
+    
+    
+    ipt = locations;
+    
+    for ( i = 0; i < N; i++ ) {
+        loc = *ipt;
+        spot = demePosition[loc];
+        *(individualsInDeme + spot) = i;
+        demePosition[loc] = demePosition[loc] + 1;
+        
+        ipt++;
+    }
+    
+    if ( VERBOSE ) {
+        FILE *testMakeIndexes;
+        testMakeIndexes = fopen("TestMakeDemesIndexes.txt","w");
+        for ( i = 0; i < N; i++ ) {
+            j = individualsInDeme[i];
+            fprintf(testMakeIndexes, "%li,%i\n", j, locations[j]);
+        }
+        fclose(testMakeIndexes);
+    }
 }
 
 
@@ -834,6 +935,7 @@ unsigned readInParametersFromFile(void)
     //exit(0);
     N = INITIAL_N;
     printParametersToFiles(RNG_SEED);
+    GENOME_MU = MU * ((double) PLOIDY) * ((double) nSITES);
     
     return RNG_SEED;
 }
@@ -845,11 +947,12 @@ void reproduction(void)
     int pop;
     long int i, j, noffspring[nPOPULATIONS], totalOffspring;
     short int *offspringGTs, *sipt;
+    long int individualsInDeme[N], nNewMutations;
+    double mutRate;
+    double fitnessValues[N], fitnessNumLines[N];
     
-    if ( INCLUDE_SELECTION ) {
-        double fitnessValues[N];
+    if ( INCLUDE_SELECTION )
         computeFitness(fitnessValues);
-    }
     
     totalOffspring = 0;
     for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
@@ -864,8 +967,24 @@ void reproduction(void)
         printf("\n");
     }
 
+    // figure out how many mutations and which sites
+    nNewMutations = gsl_ran_poisson( rngState, (GENOME_MU * ((double) totalOffspring)) );
+    unsigned long long int mutatedLoci[nNewMutations];
+    // int gsl_ran_choose (const gsl_rng * r, void * dest, size_t k, void * src, size_t n, size_t size)
+    gsl_ran_choose( rngState, mutatedLoci, nNewMutations, siteIndexes, nSITES, sizeof(unsigned long long int) );
+    
+    // make convenient arrays for choosing parents
+    makeDemesIndexes(individualsInDeme); // this is instead of doing a sort; maybe doing a sort will turn out to be better???
+    if ( INCLUDE_SELECTION )
+        makeCumulativeFitnessNumLines( fitnessValues, fitnessNumLines, individualsInDeme );
+    
     // now, get a memory block to use to store the offspring genotypes
-    offspringGTs = checkMemoryBlocks(totalOffspring);
+    offspringGTs = checkMemoryBlocks(totalOffspring, nNewMutations);
+    // choose parents and make offspring
+    sipt = offspringGTs;
+    for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
+        
+    }
     
     
     
