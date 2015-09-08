@@ -59,7 +59,7 @@ short int *genotypes0, *genotypes1, *gts; // pointer to memory blocks for indivi
 int *locations; // locations in discrete space of individuals
 unsigned long long int *variableSiteIndexes, *siteIndexes, *SFScounts, *alleleCounts; // pointers for memory blocks for sites in genome
 double *alleleFrequencies, *migrationRates, *K_VALUES, *M_VALUES, *selectionCoefficients;
-_Bool *siteIsVariable;
+short int *siteIsVariable; // codes for locus's current status (see below for codes)
 short int currentBlock = 0; // keep track of which block is in use
 unsigned long long int blockSizes[2];
 long int t; // time counter
@@ -87,16 +87,26 @@ int *siteClassifications;
 #define CODOMINANCE 0.5 // codominant effects of alleles in diploid genotypes
 #define FITNESS_MODEL_ADDITIVE 0
 #define FITNESS_MODEL_MULTIPLICATIVE 1
+#define LOCUS_STATUS_INACTIVE 0
+#define LOCUS_STATUS_VARIABLE_IN_PARENTS 1
+#define LOCUS_STATUS_VARIABLE_PLUS_MUT 2
+#define LOCUS_STATUS_NEW_MUT_ONLY 3
 
 
 // function declarations
 long int calculateNumOffspring(int pop);
 short int * checkMemoryBlocks(long int totalOffspring, long int nNewMutations);
+void chooseParents(long int *mommy, long int *daddy, double *dpt, long int nparents);
+void chooseParentsAtRandom(long int *mommy, long int *daddy, long int *randomNumberLine, long int nhere);
 void computeFitness(double *fitnessValues);
+int figureOutRepeatMutations(long int nNewMutations, unsigned long long *mutatedLoci, unsigned long long *repeatMutations);
+long int figureOutOffspringGenomeSites( unsigned long long int *offsp_SiteIndexes, int *offsp_lociStates, long int nNewMutations, unsigned long long int *mutatedLoci );
 void finalTasks(void);
 void initializeRNG(unsigned int RNG_SEED);
 void makeCumulativeFitnessNumLines(double *fitnessValues, double *fitnessNumLines, long int *individualsInDeme);
 void makeDemesIndexes(long int *individualsInDeme);
+void makeOneOffspring(long int mommy, long int daddy, long int *individualsInThisDeme, short int *offGTpt, int pop, unsigned long long int totalNewLoci, long int *sequenceOfNewAdditions);
+void makeSequenceOfNewAdditions(long int *sequenceOfNewAdditions, unsigned long long int *mutatedLoci, long int nNewMutations);
 void migration(void);
 void printParametersToFiles(unsigned RNG_SEED);
 double randExp(double meanValue);
@@ -151,7 +161,7 @@ int main(int argc, char *argv[])
 
 long int calculateNumOffspring(int pop)
 {
-    long int numOffspring = 0, focalTime;
+    long int numOffspring = 0, focalTime, nhere;
     double expected, currentPop, k;
     
     // check to see if now is a time to change demographic parameters
@@ -163,14 +173,19 @@ long int calculateNumOffspring(int pop)
         }
     }
     
-    if ( FIXED_POP_SIZE )
-        numOffspring = (long int) *(KvalPt + pop);
-    else {
-        k = *(KvalPt + pop);
-        currentPop = ((double) *(abundances + pop));
-        expected = currentPop + (currentPop * MAX_POP_GROWTH_RATE * (k - currentPop)/k); // logistic equation
-        numOffspring = gsl_ran_poisson( rngState, expected );
+    nhere = *(abundances + pop);
+    if ( nhere > 1) {
+        if ( FIXED_POP_SIZE )
+            numOffspring = (long int) *(KvalPt + pop);
+        else {
+            k = *(KvalPt + pop);
+            currentPop = ((double) nhere);
+            expected = currentPop + (currentPop * MAX_POP_GROWTH_RATE * (k - currentPop)/k); // logistic equation
+            numOffspring = gsl_ran_poisson( rngState, expected );
+        }
     }
+    else
+        numOffspring = 0;
     
     return numOffspring;
 }
@@ -206,6 +221,53 @@ short int * checkMemoryBlocks(long int totalOffspring, long int nNewMutations)
     }
     
     return offGT;
+}
+
+
+void chooseParents(long int *mommy, long int *daddy, double *fnlpt, long int nparents)
+{
+    long int i, j;
+    double dum, *dpt;
+
+    dpt = fnlpt;
+    // dpt is the pointer to first entry in the the fitness number line for this patch
+
+    // choose mom
+    dum = gsl_rng_uniform(rngState);
+    i = 0;
+    while ( dum > *dpt ) {
+        i++;
+        dpt++;
+    }
+    *mommy = i;
+    
+    // choose dad; make sure not the same as mom
+    do {
+        dum = gsl_rng_uniform(rngState);
+        j = 0;
+        dpt = fnlpt;
+        while ( dum > *dpt ) {
+            dpt++;
+            j++;
+        }
+    } while ( j == i );
+    *daddy = j;
+    
+//    if ( VERBOSE ) {
+//        printf("\nMommy = %li, daddy = %li\n", *mommy, *daddy);
+//    }
+
+}
+
+
+void chooseParentsAtRandom(long int *mommy, long int *daddy, long int *randomNumberLine, long int nhere)
+{
+    long int chosenOnes[2];
+    
+    gsl_ran_choose( rngState, chosenOnes, 2, randomNumberLine, nhere, sizeof(long int) );
+    
+    *mommy = chosenOnes[0];
+    *daddy = chosenOnes[1];
 }
 
 
@@ -307,6 +369,155 @@ void computeFitness(double *fitnessValues)
 }
 
 
+int figureOutRepeatMutations(long int nNewMutations, unsigned long long int *mutatedLoci, unsigned long long int *repeatMutations)
+{
+    int nRepeatMutations = 0;
+
+//    unsigned long long int *ullpt, *vlpt, newMutIndex;
+//    long int i, j;
+//    
+//    ullpt = repeatMutations;
+//    for ( i = 0; i < nNewMutations; i++ ) {
+//        vlpt = variableSiteIndexes;
+//        newMutIndex = *ullpt;
+//        while ( *vlpt < newMutIndex )
+//            vlpt++;
+//        
+//        if ( *vlpt == newMutIndex ) {
+//            // new mutation is at a site already tracked in the genomes of parents
+//            locusState = *(siteIsVariable + *vlpt);
+//            if ( locusState == LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
+//                
+//            }
+//            else if ( locusState == LOCUS_STATUS_IN_PARENTS_NOT_VARIABLE ) {
+//                
+//            }
+//        }
+//        else {
+//            *(siteIsVariable + newMutIndex) = LOCUS_STATUS_NEW_MUT_ONLY;
+//        }
+//        
+//        
+//        ullpt++;
+//    }
+//    
+//    
+//    
+//    
+//    
+//    printf("\nWarning!  Figure out repeat mutations NOT finished yet!\n");
+    
+    return nRepeatMutations;
+}
+
+
+long int figureOutOffspringGenomeSites( unsigned long long int *offsp_SiteIndexes, int *offsp_lociStates, long int nNewMutations, unsigned long long int *mutatedLoci )
+{
+    long int nSitesInOffspring = 0, newLocusCount = 0, parentalCount = 0, nRepeatMutations = 0;
+    unsigned long long int locus, *newLocusIndexPt, *variableSitePt, *offsp_pt;
+    long int i, totalSitesDone = 0, retainedSites = 0;
+    int *offsp_ls;
+
+    newLocusIndexPt = mutatedLoci;
+    variableSitePt = variableSiteIndexes;
+    offsp_pt = offsp_SiteIndexes;
+    offsp_ls = offsp_lociStates;
+    
+    while ( totalSitesDone < (nNewMutations + nVariableSites) ) {
+        if ( *newLocusIndexPt > *variableSitePt ) {
+            // add in the parental locus
+            locus = *variableSitePt;
+            if ( *(siteIsVariable + locus) == LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
+                // should be added in, else ignored
+                *offsp_pt = locus; // record the locus
+                offsp_pt++; // advance offspring locus pointer
+                
+                *offsp_ls = LOCUS_STATUS_VARIABLE_IN_PARENTS; // record the status
+                offsp_ls++; // advance the status pointer
+                
+                nSitesInOffspring++; // increment the total offspring site counter
+                retainedSites++;
+            }
+            parentalCount++; // one more parental site taken care of
+            variableSitePt++; // increment the variable site pointer
+            
+            totalSitesDone++;
+        }
+        else if ( *newLocusIndexPt < *variableSitePt ) {
+            // add in the new locus
+            *offsp_pt = *newLocusIndexPt; // record the index
+            offsp_pt++; // advance the index pointer
+            
+            *offsp_ls = LOCUS_STATUS_NEW_MUT_ONLY; // record the status
+            offsp_ls++; // advance the status pointer
+            
+            newLocusIndexPt++; // advance new locus index pointer
+            
+            nSitesInOffspring++; // increment the total site counter
+            
+            newLocusCount++;
+            
+            totalSitesDone++;
+        }
+        else {
+            // the mutation is at an already used site
+            if ( *newLocusIndexPt != *variableSitePt ) {
+                fprintf(stderr, "\nError in figureOutOffspringGenomeSites():\n\t*newLocusIndexPt (%llu) != *variableSitePt (%llu)\n", *newLocusIndexPt, *variableSitePt);
+                exit(-1);
+            }
+            *offsp_pt = *newLocusIndexPt; // record the index
+            offsp_pt++; // advance the index pointer
+            
+            *offsp_ls = LOCUS_STATUS_VARIABLE_PLUS_MUT; // record the status
+            offsp_ls++; // advance the status pointer
+            
+            newLocusIndexPt++;
+            variableSitePt++; // advance BOTH pointers
+            
+            nSitesInOffspring++; // increment count of sites in offspring
+            nRepeatMutations++;
+            
+            totalSitesDone += 2; // took care of a parental site AND a mutation site at the same time
+
+        }
+    }
+    
+    if ( totalSitesDone != (parentalCount + newLocusCount + (2 * nRepeatMutations)) ) {
+        fprintf(stderr, "\nError in figureOutOffspringGenomeSites():\n\ttotalSitesDone (%li) != (parentalCount (%li) + newLocusCount (%li) + 2*nRepeatMutations (%li)\n", totalSitesDone, parentalCount, newLocusCount, nRepeatMutations);
+        exit(-1);
+    }
+    
+    if ( VERBOSE ) {
+        printf("\nParental loci and status codes:\n\tnumber\tindex\tcode\n");
+        for ( i = 0; i < nVariableSites; i++ ) {
+            locus = *(variableSiteIndexes + i);
+            printf("\t%li\t%llu\t%i\n", i, locus, siteIsVariable[locus]);
+        }
+        printf("\nOffspring loci and status codes:\n\tnumber\tindex\tcode\n");
+        for ( i = 0; i < nSitesInOffspring; i++ ) {
+            locus = *(offsp_SiteIndexes + i);
+            printf("\t%li\t%llu\t%i\n", i, locus, offsp_lociStates[i]);
+        }
+        for ( i = 1; i < nSitesInOffspring; i++ ) {
+            if ( *(offsp_SiteIndexes + i) <= *(offsp_SiteIndexes + i - 1) ) {
+                fprintf(stderr, "\nError in figureOutOffspringGenomeSites():\n\t*(offsp_SiteIndexes + i) (%llu) <= *(offsp_SiteIndexes + i - 1) (%llu)\n", *(offsp_SiteIndexes + i), *(offsp_SiteIndexes + i - 1));
+                exit(-1);
+            }
+        }
+        
+        printf("\nnSitesInOffspring = %li\nNew sites from mutations = %li, retained sites = %li, repeat mutations = %li\n", nSitesInOffspring, newLocusCount, retainedSites, nRepeatMutations);
+    }
+    if ( nNewMutations != (nRepeatMutations + newLocusCount) ) {
+        fprintf(stderr, "\nError in figureOutOffspringGenomeSites():\n\tnNewMutations (%li) != (nRepeatMutations (%li) + newLocusCount (%li))\n", nNewMutations, nRepeatMutations, newLocusCount);
+        exit(-1);
+    }
+    
+    exit(0);
+    
+    return nSitesInOffspring;
+}
+
+
 void finalTasks(void)
 {
     free(genotypes0);
@@ -404,8 +615,6 @@ void makeCumulativeFitnessNumLines(double *fitnessValues, double *fitnessNumLine
         }
     }
     
-    printf("\nWarning! makeCumulativeFitnessNumLines() not written yet!\n");
-    exit(0);
 }
 
 
@@ -443,6 +652,61 @@ void makeDemesIndexes(long int *individualsInDeme)
         }
         fclose(testMakeIndexes);
     }
+}
+
+
+void makeOneOffspring(long int mommy, long int daddy, long int *individualsInThisDeme, short int *offGTpt, int pop, unsigned long long int totalNewLoci, long int *sequenceOfNewAdditions)
+{
+    int i, currentLinkageGroup;
+    unsigned long long int j;
+    long int realMomi, realDadi;
+    short int *sipt, *parentPoint;
+    int linkageGroup, chromosome;
+    
+    realMomi = *(individualsInThisDeme + mommy);
+    realDadi = *(individualsInThisDeme + daddy);
+    if ( VERBOSE ) {
+        if ( *(locations + realMomi) != pop || *(locations + realDadi) != pop ) {
+            printf("\nError in makeOneOffspring:\n\tIndexes are off giving bogus mom or dad\n");
+            exit(-1);
+        }
+    }
+    
+    for ( i = 0; i < 2; i++ ) {
+        
+        sipt = offGTpt + i; // which haploid set in offspring
+        
+        // which parent
+        if ( i == 0 )
+            parentPoint = gts + (PLOIDY * nVariableSites * realMomi );
+        else
+            parentPoint = gts + (PLOIDY * nVariableSites * realDadi );
+        
+        // which chromosome to start with in the parent
+        if ( gsl_rng_uniform( rngState ) < 0.5 ) {
+            chromosome = 0;
+        }
+        else {
+            chromosome = 1;
+            parentPoint++; // advance 1 to "second" choromosome
+        }
+        currentLinkageGroup = 0;
+        
+        for ( j = 0; j < totalNewLoci; j++ ) {
+            printf("\nWarning: makeOneOffspring() not finished!\n");
+            exit(0);
+        }
+    }
+    
+}
+
+
+void makeSequenceOfNewAdditions(long int *sequenceOfNewAdditions, unsigned long long int *mutatedLoci, long int nNewMutations)
+{
+    long int i, j;
+    
+    printf("\nWarning: makeSequenceOfNewAdditions() not written!  Exiting!\n");
+    exit(0);
 }
 
 
@@ -944,21 +1208,27 @@ unsigned readInParametersFromFile(void)
 
 void reproduction(void)
 {
-    int pop;
-    long int i, j, noffspring[nPOPULATIONS], totalOffspring;
+    int pop, *locpt, *offspringLocations;
+    long int i, j, noffspring[nPOPULATIONS], totalOffspring, mommy, daddy, noff, nhere;
     short int *offspringGTs, *sipt;
-    long int individualsInDeme[N], nNewMutations;
+    long int individualsInDeme[N], nNewMutations, *lipt, randomNumberLine[N], nSitesInOffspring, maxSitesInOffspring;
     double mutRate;
-    double fitnessValues[N], fitnessNumLines[N];
+    double fitnessValues[N], fitnessNumLines[N], *dpt;
     
     if ( INCLUDE_SELECTION )
         computeFitness(fitnessValues);
+    else {
+        for ( i = 0; i < N; i++ ) {
+            randomNumberLine[i] = i;
+        }
+    }
     
     totalOffspring = 0;
     for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
         noffspring[pop] = calculateNumOffspring(pop);
         totalOffspring += noffspring[pop];
     }
+    offspringLocations = (int *) malloc( totalOffspring * sizeof(int) );
     
     if ( VERBOSE ) {
         printf("\nNumber of offspring in each deme:\n");
@@ -967,11 +1237,19 @@ void reproduction(void)
         printf("\n");
     }
 
-    // figure out how many mutations and which sites
+    // figure out how many mutations and which sites, including possibility for repeat and back mutation
     nNewMutations = gsl_ran_poisson( rngState, (GENOME_MU * ((double) totalOffspring)) );
     unsigned long long int mutatedLoci[nNewMutations];
-    // int gsl_ran_choose (const gsl_rng * r, void * dest, size_t k, void * src, size_t n, size_t size)
     gsl_ran_choose( rngState, mutatedLoci, nNewMutations, siteIndexes, nSITES, sizeof(unsigned long long int) );
+    maxSitesInOffspring = nVariableSites + nNewMutations;
+    unsigned long long int offsp_SiteIndexes[maxSitesInOffspring];
+    int offsp_lociStates[maxSitesInOffspring];
+    
+    nSitesInOffspring = figureOutOffspringGenomeSites( offsp_SiteIndexes, offsp_lociStates, nNewMutations, mutatedLoci );
+    
+    //nRepeatMutations = figureOutRepeatMutations(nNewMutations, mutatedLoci, repeatMutations);
+    long int sequenceOfNewAdditions[(nVariableSites + nNewMutations)];
+    makeSequenceOfNewAdditions(sequenceOfNewAdditions, mutatedLoci, nNewMutations);
     
     // make convenient arrays for choosing parents
     makeDemesIndexes(individualsInDeme); // this is instead of doing a sort; maybe doing a sort will turn out to be better???
@@ -981,12 +1259,39 @@ void reproduction(void)
     // now, get a memory block to use to store the offspring genotypes
     offspringGTs = checkMemoryBlocks(totalOffspring, nNewMutations);
     // choose parents and make offspring
-    sipt = offspringGTs;
+    sipt = offspringGTs; // pointer to beginning of offspring genotype array
+    dpt = fitnessNumLines; // pointer to first number line
+    locpt = offspringLocations; // pointer to location of first individual
+    lipt = individualsInDeme;
     for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
-        
+        noff = noffspring[pop];
+        if ( noff > 0 ) {
+            nhere = abundances[pop];
+            for ( i = 0; i < noff; i++ ) {
+                if ( INCLUDE_SELECTION )
+                    chooseParents(&mommy, &daddy, dpt, nhere);
+                else
+                    chooseParentsAtRandom(&mommy, &daddy, randomNumberLine, nhere);
+                makeOneOffspring(mommy, daddy, lipt, sipt, pop, (nVariableSites + nNewMutations), sequenceOfNewAdditions);
+                *locpt = pop;
+                locpt++;
+                sipt += (PLOIDY * (nVariableSites + nNewMutations));
+            }
+        }
+        dpt += nhere;
+        lipt += nhere;
     }
     
-    
+    // switch the genotype pointer to the offspring's
+    gts = offspringGTs;
+    if ( currentBlock )
+        currentBlock = 0;
+    else
+        currentBlock = 1;
+    for ( i = 0; i < nPOPULATIONS; i++ ) {
+        abundances[i] = noffspring[i];
+    }
+    N = totalOffspring;
     
     printf("\nWarning: reproduction() not finished yet!\n");
     exit(0);
@@ -1039,11 +1344,11 @@ void setUpGenome(void)
     gsl_ran_choose( rngState, variableSiteIndexes, nVariableSites, siteIndexes, nSITES, sizeof(unsigned long long int) );
     // variable site indexes now stores the ordered indexes of sites that should have segregating variants
     // siteIndexes just stores the indexes [0..nSITES-1], which is useful for random choices like this one, so we keep it
-    siteIsVariable = (_Bool *) malloc( nSITES * sizeof(_Bool) );
+    siteIsVariable = (short int *) malloc( nSITES * sizeof(short int) );
     siteClassifications = (int *) malloc( nSITES * sizeof(int) );
-    memset( siteIsVariable, 0, (nSITES * sizeof(_Bool)) );
+    memset( siteIsVariable, LOCUS_STATUS_INACTIVE, (nSITES * sizeof(short int)) );
     for ( foo = 0; foo < nVariableSites; foo++ )
-        *(siteIsVariable + (variableSiteIndexes[foo])) = 1;
+        *(siteIsVariable + (variableSiteIndexes[foo])) = LOCUS_STATUS_VARIABLE_IN_PARENTS;
     // siteIsVariable stores the same information as variableSiteIndexes, but in a different form; both are useful
     
     // now randomly assign frequencies
