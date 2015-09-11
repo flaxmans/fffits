@@ -73,7 +73,7 @@ double *migRatePt, *KvalPt;
 
 // site classifications and magic numbers
 int *siteClassifications;
-#define nSITE_TYPES 4
+#define nSITE_CLASSES 4
 #define SITE_CLASS_NEUTRAL 0
 #define SITE_CLASS_BGS 1 // background selection
 #define SITE_CLASS_POS 2 // positive selection
@@ -101,7 +101,7 @@ void chooseParents(long int *mommy, long int *daddy, double *dpt, long int npare
 void chooseParentsAtRandom(long int *mommy, long int *daddy, long int *randomNumberLine, long int nhere);
 void computeFitness(double *fitnessValues);
 long int figureOutOffspringGenomeSites( unsigned long long int *offsp_SiteIndexes, short int *offsp_lociStates, long int nNewMutations, unsigned long long int *mutatedLoci );
-void finalTasks(void);
+void finalTasks(unsigned RNG_SEED);
 void initializeRNG(unsigned int RNG_SEED);
 void makeCumulativeFitnessNumLines(double *fitnessValues, double *fitnessNumLines, long int *individualsInDeme);
 void makeDemesIndexes(long int *individualsInDeme);
@@ -127,7 +127,6 @@ int main(int argc, char *argv[])
     int ch;
     char *progname = argv[0];
     
-    RNG_SEED = readInParametersFromFile();
     
     // read in optional command line arguments
     while ((ch = getopt(argc, argv, "T:V?")) != -1) {
@@ -145,6 +144,8 @@ int main(int argc, char *argv[])
         }
     }
     
+    RNG_SEED = readInParametersFromFile();
+    
     // initialization steps
     initializeRNG(RNG_SEED);
     setUpGenome();
@@ -156,11 +157,15 @@ int main(int argc, char *argv[])
         
         reproduction(); // includes fecundity selection
         
-        //printf("\t%li\n", t);
+        if ( N == 0 ) {
+            // all extinct
+            fprintf(stdout, "\nAll extinct at end of generation %li.\n", t);
+            finalTasks(RNG_SEED);
+            exit(1);
+        }
     }
-    //printf("\n");
     
-    finalTasks();
+    finalTasks(RNG_SEED);
     return 0;
 }
 
@@ -544,8 +549,10 @@ long int figureOutOffspringGenomeSites( unsigned long long int *offsp_SiteIndexe
 }
 
 
-void finalTasks(void)
+void finalTasks(unsigned RNG_SEED)
 {
+    printParametersToFiles(RNG_SEED);
+    
     free(genotypes0);
     free(genotypes1);
     free(parentalTrackedSiteIndexes);
@@ -795,7 +802,7 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
                 }
             }
             else if ( *offsp_ls == LOCUS_STATUS_NEW_MUT_ONLY ) {
-                *sipt = 0; // just put in the locus as a placeholder; mutations added later
+                *sipt = ALLELE_CODE_ANCESTRAL; // just put in the locus as a placeholder; mutations added later
                 // do NOT advance any parent pointers or counters
             }
             else {
@@ -923,7 +930,132 @@ void migration(void)
 
 void printParametersToFiles(unsigned RNG_SEED)
 {
+    // make an R-sourceable script of parameter values
+    int i, j;
+    FILE *rfile;
+    double *dpt, THETA;
+    unsigned long long int foo;
     
+    rfile = fopen("metadataAndParameters.R","w");
+    fprintf(rfile, "RNG_SEED <- %u\n", RNG_SEED);
+    fprintf(rfile, "nGENERATIONS <- %li\n", nGENERATIONS);
+    fprintf(rfile, "nPOPULATIONS <- %i\n", nPOPULATIONS);
+    
+    // demography
+    fprintf(rfile, "# demography\nnDEMOGRAPHIC_CHANGES <- %i\n", nDEMOGRAPHIC_CHANGES);
+    if ( nDEMOGRAPHIC_CHANGES > 0 ) {
+        if ( nDEMOGRAPHIC_CHANGES == 1 )
+            fprintf(rfile, "DEMOGRAPHIC_CHANGE_TIMES <- %li\n", *DEMOGRAPHIC_CHANGE_TIMES);
+        else {
+            fprintf(rfile, "DEMOGRAPHIC_CHANGE_TIMES <- c(%li", *DEMOGRAPHIC_CHANGE_TIMES);
+            for ( i = 1; i < nDEMOGRAPHIC_CHANGES; i++ )
+                fprintf(rfile, ",%li", *(DEMOGRAPHIC_CHANGE_TIMES + i));
+            fprintf(rfile, ")\n");
+        }
+    }
+    else
+        fprintf(rfile, "DEMOGRAPHIC_CHANGE_TIMES <- -1\n");
+    
+    fprintf(rfile, "K_VALUES <- c(%E", *K_VALUES);
+    for ( i = 1; i < (nPOPULATIONS * (nDEMOGRAPHIC_CHANGES+1)); i++ ) {
+        fprintf(rfile, ",%E", *(K_VALUES+i));
+    }
+    fprintf(rfile, ")\n");
+    fprintf(rfile, "K_VALUES <- matrix(data = K_VALUES, nrow = nDEMOGRAPHIC_CHANGES+1, ncol = nPOPULATIONS, byrow = TRUE)\n");
+    fprintf(rfile, "FIXED_POP_SIZE <- %i\n", FIXED_POP_SIZE);
+    fprintf(rfile, "MAX_POP_GROWTH_RATE <- %E\n", MAX_POP_GROWTH_RATE);
+    fprintf(rfile, "\n");
+    
+    // migration parameters
+    fprintf(rfile, "# migration parameters\nnMIGRATION_CHANGES <- %i\n", nMIGRATION_CHANGES);
+    if ( nMIGRATION_CHANGES > 0 ) {
+        if ( nMIGRATION_CHANGES == 1 )
+            fprintf(rfile, "MIGRATION_CHANGE_TIMES <- %li\n", *MIGRATION_CHANGE_TIMES);
+        else {
+            fprintf(rfile, "MIGRATION_CHANGE_TIMES <- c(%li", *MIGRATION_CHANGE_TIMES);
+            for ( i = 1; i < nMIGRATION_CHANGES; i++ )
+                fprintf(rfile, ",%li", *(MIGRATION_CHANGE_TIMES + i));
+            fprintf(rfile, ")\n");
+        }
+    }
+    else
+        fprintf(rfile, "MIGRATION_CHANGE_TIMES <- -1\n");
+    dpt = M_VALUES;
+    for ( i = 1; i <= (nMIGRATION_CHANGES + 1); i++ ) {
+        fprintf(rfile, "M_VALUES_period_%i <- c(%E", i, *dpt);
+        dpt++;
+        for ( j = 1; j < (nPOPULATIONS * nPOPULATIONS); j++ ) {
+            fprintf(rfile, ",%E", *dpt);
+            dpt++;
+        }
+        fprintf(rfile, ")\n");
+        fprintf(rfile, "M_VALUES_period_%i <- matrix(data = M_VALUES_period_%i, nrow = nPOPULATIONS, ncol = nPOPULATIONS, byrow = TRUE)\n", i, i);
+    }
+    fprintf(rfile, "\n");
+    
+    // genome
+    fprintf(rfile, "# genome parameters\nnSITES <- %llu\n", nSITES);
+    fprintf(rfile, "nLINKAGE_GROUPS <- %i\n", nLINKAGE_GROUPS);
+    fprintf(rfile, "PLOIDY <- %i\n", PLOIDY);
+    fprintf(rfile, "RECOMBINATION_RATE_PER_KB <- %E\n", RECOMBINATION_RATE_PER_KB);
+    fprintf(rfile, "MU <- %E\n", MU);
+    fprintf(rfile, "GENOME_MU <- %E\n", GENOME_MU);
+    foo = N * PLOIDY * nSITES;
+    THETA = 2.0 * MU * ((double) foo);
+    fprintf(rfile, "THETA <- %E\n", THETA);
+    fprintf(rfile, "\n");
+    
+    // natural selection
+    fprintf(rfile, "# natural selection\nINCLUDE_SELECTION <- %i\n", INCLUDE_SELECTION);
+    fprintf(rfile, "MEAN_S_BGS <- %E\n", MEAN_S_BGS);
+    fprintf(rfile, "MEAN_S_POS <- %E\n", MEAN_S_POS);
+    fprintf(rfile, "MEAN_S_DIV <- %E\n", MEAN_S_DIV);
+    fprintf(rfile, "PROBABILITY_SITE_BGS <- %E\n", PROBABILITY_SITE_BGS);
+    fprintf(rfile, "PROBABILITY_SITE_POS <- %E\n", PROBABILITY_SITE_POS);
+    fprintf(rfile, "PROBABILITY_SITE_DIV <- %E\n", PROBABILITY_SITE_DIV);
+    fprintf(rfile, "ENVIRONMENT_TYPE <- %i\n", ENVIRONMENT_TYPE);
+    fprintf(rfile, "ENVT_MIN <- %E\n", ENVT_MIN);
+    fprintf(rfile, "ENVT_MAX <- %E\n", ENVT_MAX);
+    fprintf(rfile, "environmentGradient <- c(%E", *environmentGradient);
+    for ( i = 1; i < nPOPULATIONS; i++ )
+        fprintf(rfile, ",%E", *(environmentGradient + i));
+    fprintf(rfile, ")\n");
+    fprintf(rfile, "FITNESS_MODEL <- %i\n", FITNESS_MODEL);
+    fprintf(rfile, "\n");
+    
+    // codes and magic numbers
+    fprintf(rfile, "# codes and magic numbers\nnSITE_CLASSES <- %i\n", nSITE_CLASSES);
+    fprintf(rfile, "SITE_CLASS_NEUTRAL <- %i\n", SITE_CLASS_NEUTRAL);
+    fprintf(rfile, "SITE_CLASS_BGS <- %i\n", SITE_CLASS_BGS);
+    fprintf(rfile, "SITE_CLASS_POS <- %i\n", SITE_CLASS_POS);
+    fprintf(rfile, "SITE_CLASS_DIV <- %i\n", SITE_CLASS_DIV);
+    fprintf(rfile, "ALLELE_CODE_ANCESTRAL <- %i\n", ALLELE_CODE_ANCESTRAL);
+    fprintf(rfile, "ALLELE_CODE_DERIVED <- %i\n", ALLELE_CODE_DERIVED);
+    fprintf(rfile, "ENVT_TYPE_GRADIENT <- %i\n", ENVT_TYPE_GRADIENT);
+    fprintf(rfile, "ENVT_TYPE_MOSAIC <- %i\n", ENVT_TYPE_MOSAIC);
+    fprintf(rfile, "ENVT_TYPE_INVARIANT <- %i\n", ENVT_TYPE_INVARIANT);
+    
+    fprintf(rfile, "FITNESS_MODEL_ADDITIVE <- %i\n", FITNESS_MODEL_ADDITIVE);
+    fprintf(rfile, "FITNESS_MODEL_MULTIPLICATIVE <- %i\n", FITNESS_MODEL_MULTIPLICATIVE);
+    fprintf(rfile, "LOCUS_STATUS_INACTIVE <- %i\n", LOCUS_STATUS_INACTIVE);
+    fprintf(rfile, "LOCUS_STATUS_VARIABLE_IN_PARENTS <- %i\n", LOCUS_STATUS_VARIABLE_IN_PARENTS);
+    fprintf(rfile, "LOCUS_STATUS_VARIABLE_PLUS_MUT <- %i\n", LOCUS_STATUS_VARIABLE_PLUS_MUT);
+    fprintf(rfile, "LOCUS_STATUS_NEW_MUT_ONLY <- %i\n", LOCUS_STATUS_NEW_MUT_ONLY);
+    fprintf(rfile, "LOCUS_STATUS_TRACKED_IN_PARENTS <- %i\n", LOCUS_STATUS_TRACKED_IN_PARENTS);
+    fprintf(rfile, "CODOMINANCE <- %E\n", CODOMINANCE);
+    fprintf(rfile, "\n");
+    
+    // states at end of run
+    fprintf(rfile, "N <- %li\n", N);
+    fprintf(rfile, "nSelectedSites <- %li\n", nSelectedSites);
+    fprintf(rfile, "abundances <- c(%li", abundances[0]);
+    for ( i = 1; i < nPOPULATIONS; i++ )
+        fprintf(rfile, ",%li", abundances[i]);
+    fprintf(rfile, ")\n");
+    
+    fprintf(rfile, "\n");
+    
+    fclose(rfile);
 }
 
 
@@ -932,6 +1064,8 @@ void putInMutations( short int *offspringGTs, short int *offsp_lociStates, unsig
     long int i, individual, totalMutsAdded = 0;
     short int *spot, *offsp_ls;
     unsigned long long int locus;
+    
+    // only considering a possibility of two different alleles at each site
 
     offsp_ls = offsp_lociStates;
     for ( i = 0; i < nSitesInOffspring; i++ ) {
@@ -940,18 +1074,29 @@ void putInMutations( short int *offspringGTs, short int *offsp_lociStates, unsig
             //unsigned long int gsl_rng_uniform_int (const gsl_rng * r, unsigned long int n)
             //this function returns a random integer from 0 to n-1
             spot = offspringGTs + ( PLOIDY * nSitesInOffspring * individual ) + ( i * PLOIDY );
+            // spot = site in genome array
+            
+            // choose one of the two alleles at random
             if ( gsl_rng_uniform( rngState ) < 0.5 )
                 spot++;
             
             locus = *(offsp_SiteIndexes + i);
             
-            if ( *spot ) {
-                *spot = 0;
+            // if it is a derived allele, mutate it back to the ancestral state
+            if ( *spot == ALLELE_CODE_DERIVED ) {
+                *spot = ALLELE_CODE_ANCESTRAL;
                 *(alleleCounts + locus) -= 1;
             }
             else {
-                *spot = 1;
+                // otherwise, insert a derived allele
+                *spot = ALLELE_CODE_DERIVED;
                 *(alleleCounts + locus) += 1;
+            }
+            
+            // double check allele counts
+            if ( *(alleleCounts + locus) > (PLOIDY * N) ) {
+                fprintf(stderr, "\nError in putInMutations():\n\t*(alleleCounts + locus) (%llu) out of bounds\n", *(alleleCounts + locus));
+                exit(-1);
             }
             
             totalMutsAdded++;
@@ -977,6 +1122,7 @@ unsigned readInParametersFromFile(void)
 {
     char c, option[80], option2[80];
     long int INITIAL_N;
+    unsigned long long int foo;
     int i, j, k, dumi, temp;
     unsigned RNG_SEED = 1;
     double value;
@@ -991,7 +1137,6 @@ unsigned readInParametersFromFile(void)
     
     // the action of reading.  Order of things in parameters.ini.txt file matters!
     while ( !feof(pfile) ) {
-        
         fscanf(pfile, "%s", option);
         
         if ( !strcmp( option, "RNG_SEED" ) ) { // set RNG seed value
@@ -1210,6 +1355,11 @@ unsigned readInParametersFromFile(void)
             if ( VERBOSE )
                 printf("Found RECOMBINATION_RATE_PER_KB (%s) = %f\n", option, RECOMBINATION_RATE_PER_KB);
         }
+        else if ( !strcmp( option, "MU"  ) ) { // background selection mean coefficient
+            fscanf(pfile, "%lf", &MU);
+            if ( VERBOSE )
+                printf("Found MU (%s) = %E\n", option, MU);
+        }
         else if ( !strcmp( option, "INCLUDE_SELECTION"  ) ) { // using selection
             fscanf(pfile, "%i", &temp);
             INCLUDE_SELECTION = temp;
@@ -1342,7 +1492,6 @@ unsigned readInParametersFromFile(void)
     
     //exit(0);
     N = INITIAL_N;
-    printParametersToFiles(RNG_SEED);
     GENOME_MU = MU * ((double) PLOIDY) * ((double) nSITES);
     
     return RNG_SEED;
@@ -1374,12 +1523,6 @@ void reproduction(void)
     for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
         noffspring[pop] = calculateNumOffspring(pop);
         totalOffspring += noffspring[pop];
-    }
-    if ( totalOffspring == 0 ) {
-        // all extinct
-        fprintf(stdout, "\nAll extinct at end of generation %li.\n", t);
-        finalTasks();
-        exit(1);
     }
 
     offspringLocations = (int *) malloc( totalOffspring * sizeof(int) );
@@ -1576,9 +1719,9 @@ void setUpGenome(void)
 
     
     // assign site types
-    double siteProbs[nSITE_TYPES];
-    unsigned long long int siteTypeCounts[nSITE_TYPES];
-    memset( siteTypeCounts, 0, (nSITE_TYPES * sizeof(unsigned long long int)) );
+    double siteProbs[nSITE_CLASSES];
+    unsigned long long int siteTypeCounts[nSITE_CLASSES];
+    memset( siteTypeCounts, 0, (nSITE_CLASSES * sizeof(unsigned long long int)) );
     selectionCoefficients = (double *) malloc( nSITES * sizeof(double) );
     memset( selectionCoefficients, 0, (nSITES * sizeof(double)) );
     siteProbs[0] = PROBABILITY_SITE_NEUTRAL;
@@ -1630,7 +1773,7 @@ void setUpGenome(void)
     foo = 0;
     if ( VERBOSE )
         printf("\nSite type counts:\n");
-    for ( i = 0; i < nSITE_TYPES; i++ ) {
+    for ( i = 0; i < nSITE_CLASSES; i++ ) {
         if ( VERBOSE )
             printf("\t%llu", siteTypeCounts[i]);
         foo += siteTypeCounts[i];
@@ -1646,7 +1789,7 @@ void setUpGenome(void)
     FILE *siteDesignations, *sd2;
     siteDesignations = fopen("SiteClassIndexes.R", "w"); // R format
     sd2 = fopen("SiteClassIndexes.m", "w"); // matlab format
-    for ( i = 1; i < nSITE_TYPES; i++ ) {
+    for ( i = 1; i < nSITE_CLASSES; i++ ) {
         if ( i == SITE_CLASS_BGS ) {
             dumi = SITE_CLASS_BGS;
             strcpy( str, "BGS_SITE_INDEXES" );
