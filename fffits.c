@@ -156,7 +156,9 @@ int main(int argc, char *argv[])
         
         reproduction(); // includes fecundity selection
         
+        //printf("\t%li\n", t);
     }
+    //printf("\n");
     
     finalTasks();
     return 0;
@@ -178,7 +180,7 @@ long int calculateNumOffspring(int pop)
     }
     
     nhere = *(abundances + pop);
-    if ( nhere > 1) {
+    if ( nhere > 1 ) {
         if ( FIXED_POP_SIZE )
             numOffspring = (long int) *(KvalPt + pop);
         else {
@@ -314,7 +316,7 @@ void computeFitness(double *fitnessValues)
         ullpt++;
     }
     
-    if ( VERBOSE ) {
+    if ( VERBOSE && t < 10 ) {
         printf("\nLocal and Master selected site indexes, site type codes, and selection coefficients:\n");
         for ( i = 0; i < nSelectedSites; i++ )
             printf("\t%llu\t%llu\t%i\t%f\n", selectedSiteIndexesLocal[i], selectedSiteIndexesMaster[i], cf_siteClasses[i], cf_scoeffs[i]);
@@ -354,7 +356,7 @@ void computeFitness(double *fitnessValues)
                     // heterozygotes are assumed intermediate everywhere, so no fitness change
                 }
             }
-            else if ( cf_siteClasses == SITE_CLASS_NEUTRAL ) {
+            else if ( cf_siteClass == SITE_CLASS_NEUTRAL ) {
                 fprintf(stderr, "\nError in computeFitness():\n\tneutral site made it into calcs.\n");
                 exit(-1);
             }
@@ -517,7 +519,7 @@ long int figureOutOffspringGenomeSites( unsigned long long int *offsp_SiteIndexe
         exit(-1);
     }
     
-    if ( VERBOSE ) {
+    if ( VERBOSE && t < 10 ) {
         printf("\nParental loci and status codes:\n\tnumber\tindex\tcode\n");
         for ( i = 0; i < nTrackedSitesInParents; i++ ) {
             locus = *(parentalTrackedSiteIndexes + i);
@@ -562,8 +564,6 @@ void finalTasks(void)
     free(locations);
     free(environmentGradient);
     free(linkageGroupMembership);
-    
-    printf("\nPlease check code to make sure all malloc() are freed\n");
 }
 
 
@@ -593,34 +593,36 @@ void makeCumulativeFitnessNumLines(double *fitnessValues, double *fitnessNumLine
     lipt = individualsInDeme; // list of individual indexes in deme
     count = 0;
     for ( pop = 0; pop < nPOPULATIONS; pop++ ) { // go population by population
-        startpt = dptfnl; // save starting point in array
         nhere = abundances[pop]; // get total number here
-        masterIndex = *lipt; // individual's index
-        if ( VERBOSE ) {
-            if ( pop != *(locations + masterIndex) ) {
-                fprintf(stderr, "\nError in makeCumulativeFitnessNumLines():\n\tlocation (%i) doesn't match pop (%i)!\n", *(locations + masterIndex), pop);
-                exit(-1);
-            }
-        }
-            
-        fitval = *(fitnessValues + masterIndex);  // individual's fitness
-        fitSum = fitval; // first individual in deme: set cumulative sum start point
-        *dptfnl = fitval; // save value in fitness number line
-        lipt++; // advance individual indexing pointer
-        dptfnl++; // advance number line pointer
-        
-        for ( i = 1; i < nhere; i++ ) { // start with 1 because 0 done above
+        if ( nhere > 0 ) {
+            startpt = dptfnl; // save starting point in array
             masterIndex = *lipt; // individual's index
-            fitval = *(fitnessValues + masterIndex); // individual's fitness
-            *dptfnl = *(dptfnl - 1) + fitval; // make number line cumulative;
-            fitSum += fitval; // store total sum
-            lipt++; // advance individual's index pointer
-            dptfnl++; // advance fitness number line pointer
-        }
-        fitSum = 1.0 / fitSum; // now done with this deme's raw numbers; time to normalize
-        for ( i = 0; i < nhere; i++ ) {
-            *startpt *= fitSum;
-            startpt++;
+            if ( VERBOSE ) {
+                if ( pop != *(locations + masterIndex) ) {
+                    fprintf(stderr, "\nError in makeCumulativeFitnessNumLines():\n\tlocation (%i) doesn't match pop (%i)!\n", *(locations + masterIndex), pop);
+                    exit(-1);
+                }
+            }
+            
+            fitval = *(fitnessValues + masterIndex);  // individual's fitness
+            fitSum = fitval; // first individual in deme: set cumulative sum start point
+            *dptfnl = fitval; // save value in fitness number line
+            lipt++; // advance individual indexing pointer
+            dptfnl++; // advance number line pointer
+            
+            for ( i = 1; i < nhere; i++ ) { // start with 1 because 0 done above
+                masterIndex = *lipt; // individual's index
+                fitval = *(fitnessValues + masterIndex); // individual's fitness
+                *dptfnl = *(dptfnl - 1) + fitval; // make number line cumulative;
+                fitSum += fitval; // store total sum
+                lipt++; // advance individual's index pointer
+                dptfnl++; // advance fitness number line pointer
+            }
+            fitSum = 1.0 / fitSum; // now done with this deme's raw numbers; time to normalize
+            for ( i = 0; i < nhere; i++ ) {
+                *startpt *= fitSum;
+                startpt++;
+            }
         }
     }
     
@@ -628,15 +630,19 @@ void makeCumulativeFitnessNumLines(double *fitnessValues, double *fitnessNumLine
         printf("\n");
         dptfnl = fitnessNumLines;
         for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
-            printf("Deme %i, first fit = %f, last fit = %f\n", pop, *dptfnl, *(dptfnl + abundances[pop] - 1));
-            dptfnl++;
-            for ( i = 1; i < abundances[pop]; i++ ) {
-                if ( *dptfnl < *(dptfnl - 1) ) {
-                    printf("\nError in makeCumulativeFitnessNumLines():\n\tDecreasing values in fitness vector:\n\t%f\t%f\n", *dptfnl, *(dptfnl - 1) );
-                    exit(-1);
-                }
+            if ( abundances[pop] > 0 ) {
+                printf("Deme %i, first fit = %f, last fit = %f\n", pop, *dptfnl, *(dptfnl + abundances[pop] - 1));
                 dptfnl++;
+                for ( i = 1; i < abundances[pop]; i++ ) {
+                    if ( *dptfnl < *(dptfnl - 1) ) {
+                        printf("\nError in makeCumulativeFitnessNumLines():\n\tDecreasing values in fitness vector:\n\t%f\t%f\n", *dptfnl, *(dptfnl - 1) );
+                        exit(-1);
+                    }
+                    dptfnl++;
+                }
             }
+            else
+                printf("No individuals in Deme %i\n", pop);
         }
     }
     
@@ -1369,6 +1375,13 @@ void reproduction(void)
         noffspring[pop] = calculateNumOffspring(pop);
         totalOffspring += noffspring[pop];
     }
+    if ( totalOffspring == 0 ) {
+        // all extinct
+        fprintf(stdout, "\nAll extinct at end of generation %li.\n", t);
+        finalTasks();
+        exit(1);
+    }
+
     offspringLocations = (int *) malloc( totalOffspring * sizeof(int) );
     
     if ( VERBOSE ) {
@@ -1390,7 +1403,7 @@ void reproduction(void)
     nSitesInOffspring = figureOutOffspringGenomeSites( offsp_SiteIndexes, offsp_lociStates, nNewMutations, mutatedLoci );
     
     // debug
-    printf("\nreproduction: time, nTrackedSitesInParents, nSitesInOffspring, nNewMutations, N\n\t%li\t%llu\t%li\t%li\t%li", t, nTrackedSitesInParents, nSitesInOffspring, nNewMutations, N);
+    //printf("\nreproduction: time, nTrackedSitesInParents, nSitesInOffspring, nNewMutations, N\n\t%li\t%llu\t%li\t%li\t%li", t, nTrackedSitesInParents, nSitesInOffspring, nNewMutations, N);
     
     // make convenient arrays for choosing parents
     makeDemesIndexes(individualsInDeme); // this is instead of doing a sort; maybe doing a sort will turn out to be better???
@@ -1407,8 +1420,8 @@ void reproduction(void)
     memset( alleleCounts, 0, nSITES * sizeof(unsigned long long int) );
     for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
         noff = noffspring[pop];
+        nhere = abundances[pop];
         if ( noff > 0 ) {
-            nhere = abundances[pop];
             for ( i = 0; i < noff; i++ ) {
                 if ( INCLUDE_SELECTION )
                     chooseParents(&mommy, &daddy, dpt, nhere);
@@ -1422,8 +1435,10 @@ void reproduction(void)
                 sipt += (PLOIDY * nSitesInOffspring);
             }
         }
-        dpt += nhere;
-        lipt += nhere;
+        if ( nhere > 0 ) {
+            dpt += nhere;
+            lipt += nhere;
+        }
     }
     
     putInMutations( offspringGTs, offsp_lociStates, offsp_SiteIndexes, nNewMutations, totalOffspring, nSitesInOffspring );
@@ -1842,26 +1857,28 @@ void setUpPopulations(void)
     
     
     FILE *initgts;
-    initgts = fopen("InitialGenotypes.csv", "w");
-    fprintf(initgts, "Locus0Copy0,Locus0Copy1");
-    for ( k = 1; k < nTrackedSitesInParents; k++ ) {
-        for ( i = 0; i < PLOIDY; i++ ) {
-            fprintf(initgts, ",Locus%lluCopy%i", k, i);
+    if ( VERBOSE ) {
+        initgts = fopen("InitialGenotypes.csv", "w");
+        fprintf(initgts, "Locus0Copy0,Locus0Copy1");
+        for ( k = 1; k < nTrackedSitesInParents; k++ ) {
+            for ( i = 0; i < PLOIDY; i++ ) {
+                fprintf(initgts, ",Locus%lluCopy%i", k, i);
+            }
         }
-    }
-    fprintf(initgts,"\n");
-    
-    sipt = gts;
-    for ( k = 0; k < N; k++ ) {
-        fprintf(initgts, "%i", *sipt);
-        sipt++;
-        for ( j = 1; j < (PLOIDY * nTrackedSitesInParents); j++ ) {
-            fprintf(initgts, ",%i", *sipt);
+        fprintf(initgts,"\n");
+        
+        sipt = gts;
+        for ( k = 0; k < N; k++ ) {
+            fprintf(initgts, "%i", *sipt);
             sipt++;
+            for ( j = 1; j < (PLOIDY * nTrackedSitesInParents); j++ ) {
+                fprintf(initgts, ",%i", *sipt);
+                sipt++;
+            }
+            fprintf(initgts, "\n");
         }
-        fprintf(initgts, "\n");
+        fclose(initgts);
     }
-    fclose(initgts);
     
     environmentGradient = (double *) malloc( nPOPULATIONS * sizeof(double) );
     if ( ENVIRONMENT_TYPE == ENVT_TYPE_GRADIENT )
