@@ -33,6 +33,7 @@ const char *version = "ffits1.0.0";
 #define MAX_POP_GROWTH_RATE_DEFAULT 0.01
 #define RECOMBINATION_RATE_PER_KB_DEFAULT 0.001
 #define PROBABILITY_SITE_SELECTED_DEFAULT 0.01
+#define TIME_SERIES_SAMPLE_FREQ_DEFAULT 1000
 
 // globals for cmd line and or parameter file options
 unsigned long long int nSITES = nSITES_DEFAULT;
@@ -54,6 +55,7 @@ double PROBABILITY_SITE_NEUTRAL;
 int ENVIRONMENT_TYPE = 0, FITNESS_MODEL = 0; // defaults for how selection works; magic numbers defined below
 double *environmentGradient, ENVT_MAX = 1.0, ENVT_MIN = -1.0;
 long int nSelectedSites;
+long int TIME_SERIES_SAMPLE_FREQ = TIME_SERIES_SAMPLE_FREQ_DEFAULT;
 
 short int *genotypes0, *genotypes1, *gts; // pointer to memory blocks for individual genotypes
 int *locations, *linkageGroupMembership; // locations in discrete space of individuals
@@ -96,6 +98,7 @@ int *siteClassifications;
 
 // function declarations
 long int calculateNumOffspring(int pop);
+void calculatePopGenMetrics(void);
 short int * checkMemoryBlocks(long int totalOffspring, long int nSitesInOffspring);
 void chooseParents(long int *mommy, long int *daddy, double *dpt, long int nparents);
 void chooseParentsAtRandom(long int *mommy, long int *daddy, long int *randomNumberLine, long int nhere);
@@ -163,6 +166,9 @@ int main(int argc, char *argv[])
             finalTasks(RNG_SEED);
             exit(1);
         }
+        
+        if ( (t % TIME_SERIES_SAMPLE_FREQ == 0) || (t == nGENERATIONS) )
+            calculatePopGenMetrics();
     }
     
     finalTasks(RNG_SEED);
@@ -199,6 +205,50 @@ long int calculateNumOffspring(int pop)
         numOffspring = 0;
     
     return numOffspring;
+}
+
+
+void calculatePopGenMetrics(void)
+{
+    long int i, j, alleleCountsByPopulation[(nPOPULATIONS * nTrackedSitesInParents)];
+    unsigned long long int SFScountsByPopulation[(nPOPULATIONS * 2 * N)];
+    unsigned long long int siteMasterIndex;
+    int pop;
+    short int *sipt;
+    long int nhere, count;
+    FILE *finalGlobalAlleleStats;
+    double oneOver2N;
+    
+    oneOver2N = 1.0 / (((double) PLOIDY) * ((double) N));
+    
+    if ( t == nGENERATIONS ) {
+        finalGlobalAlleleStats = fopen("Final_GlobalAlleleStats.csv", "w");
+        fprintf(finalGlobalAlleleStats, "SiteIndex,LinkageGroup,DerivedAlleleCount,DerivedAlleleFreq,SelectionCoefficient,SiteClassCode\n");
+    }
+    
+    sipt = gts;
+    for ( i = 0; i < nTrackedSitesInParents; i++ ) {
+        siteMasterIndex = *(parentalTrackedSiteIndexes + i);
+        if ( *(sitesStatuses + siteMasterIndex) == LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
+            count = *(alleleCounts + siteMasterIndex);
+            if ( count <= 0 ) {
+                fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tcount (%li) <= 0 for siteMasterIndex = %llu\n", count, siteMasterIndex);
+                exit(-1);
+            }
+            if ( t == nGENERATIONS ) {
+                fprintf(finalGlobalAlleleStats, "%llu,%i,%li,%E,%E,%i\n", siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), count, (((double) count) * oneOver2N), *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
+            }
+        }
+    }
+    
+    for ( i = 0; i < nPOPULATIONS; i++ ) {
+        
+    }
+    
+    
+    if ( t == nGENERATIONS )
+        fclose(finalGlobalAlleleStats);
+    
 }
 
 
@@ -718,7 +768,7 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
         parentalLocusCounter = 0;
         parentalLocusIndexes = parentalTrackedSiteIndexes;
         if ( nTrackedSitesInParents ) {
-            while ( *(sitesStatuses + *parentalLocusIndexes) == LOCUS_STATUS_INACTIVE ) {
+            while ( *(sitesStatuses + *parentalLocusIndexes) != LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
                 parentalLocusCounter++;
                 parentalLocusIndexes++;
             }
@@ -748,52 +798,53 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
         for ( j = 0; j < nSitesInOffspring; j++ ) {
             focalSite = *offsp_SIpt;
             
-            // first handle recombination and independent assortment
-            if ( *(linkageGroupMembership + focalSite) != currentLinkageGroup ) {
-                // new "chromosome"; need to implement independent assortment
-                if ( gsl_rng_uniform(rngState) < 0.5 ) {
-                    // flip to other chromosome in parent
-                    if ( chromosome ) {
-                        parentPoint--; // move back one
-                        chromosome = 0;
-                    }
-                    else {
-                        parentPoint++; // move forward one
-                        chromosome = 1;
-                    }
-                }
-                if ( *(linkageGroupMembership + focalSite) < currentLinkageGroup ) {
-                    fprintf(stderr, "\nError in makeOneOffspring():\n\t*(linkageGroupMembership + focalSite) (%i) < currentLinkageGroup (%i)\n", *(linkageGroupMembership + focalSite), currentLinkageGroup );
-                    exit(-1);
-                }
-                currentLinkageGroup = *(linkageGroupMembership + focalSite);
-                
-                nextRecombinationSpot = focalSite + ((unsigned long long int) randExp( meanRecombDistance ));
-            }
-            else if ( focalSite > nextRecombinationSpot ) {
-                // implement recombination within a linkage group
-                do {
-                    // do-while loop allows for multiple recombination events
-                    if ( chromosome ) {
-                        parentPoint--; // move back one
-                        chromosome = 0;
-                    }
-                    else {
-                        parentPoint++; // move forward one
-                        chromosome = 1;
-                    }
-                    nextRecombinationSpot += ((unsigned long long int) randExp( meanRecombDistance ));
-                } while ( focalSite > nextRecombinationSpot );
-            }
-            
             // now copy alleles from parents to offspring
             if ( *offsp_ls == LOCUS_STATUS_VARIABLE_IN_PARENTS || *offsp_ls == LOCUS_STATUS_VARIABLE_PLUS_MUT ) {
+                
+                // first handle recombination and independent assortment
+                if ( *(linkageGroupMembership + focalSite) != currentLinkageGroup ) {
+                    // new "chromosome"; need to implement independent assortment
+                    if ( gsl_rng_uniform(rngState) < 0.5 ) {
+                        // flip to other chromosome in parent
+                        if ( chromosome ) {
+                            parentPoint--; // move back one
+                            chromosome = 0;
+                        }
+                        else {
+                            parentPoint++; // move forward one
+                            chromosome = 1;
+                        }
+                    }
+                    if ( *(linkageGroupMembership + focalSite) < currentLinkageGroup ) {
+                        fprintf(stderr, "\nError in makeOneOffspring():\n\t*(linkageGroupMembership + focalSite) (%i) < currentLinkageGroup (%i)\n", *(linkageGroupMembership + focalSite), currentLinkageGroup );
+                        exit(-1);
+                    }
+                    currentLinkageGroup = *(linkageGroupMembership + focalSite);
+                    
+                    nextRecombinationSpot = focalSite + ((unsigned long long int) randExp( meanRecombDistance ));
+                }
+                else if ( focalSite > nextRecombinationSpot ) {
+                    // implement recombination within a linkage group
+                    do {
+                        // do-while loop allows for multiple recombination events
+                        if ( chromosome ) {
+                            parentPoint--; // move back one
+                            chromosome = 0;
+                        }
+                        else {
+                            parentPoint++; // move forward one
+                            chromosome = 1;
+                        }
+                        nextRecombinationSpot += ((unsigned long long int) randExp( meanRecombDistance ));
+                    } while ( focalSite > nextRecombinationSpot );
+                }
+                
                 *sipt = *parentPoint;
                 parentalLocusCounter++;  // one more parental locus taken care of
                 if ( j < (nSitesInOffspring - 1) && parentalLocusCounter < nTrackedSitesInParents ) {
                     parentalLocusIndexes++; // advance to index of next parental site/locus
                     parentPoint += PLOIDY; // advance to next site in genome
-                    while ( *(sitesStatuses + *parentalLocusIndexes) == LOCUS_STATUS_INACTIVE && parentalLocusCounter < nTrackedSitesInParents ) {
+                    while ( *(sitesStatuses + *parentalLocusIndexes) != LOCUS_STATUS_VARIABLE_IN_PARENTS && parentalLocusCounter < nTrackedSitesInParents ) {
                         parentalLocusIndexes++; // advance to index of next parental site/locus
                         parentPoint += PLOIDY; // advance to next site in genome
                         parentalLocusCounter++; // count prior locus toward those that are "done"
@@ -940,6 +991,7 @@ void printParametersToFiles(unsigned RNG_SEED)
     fprintf(rfile, "RNG_SEED <- %u\n", RNG_SEED);
     fprintf(rfile, "nGENERATIONS <- %li\n", nGENERATIONS);
     fprintf(rfile, "nPOPULATIONS <- %i\n", nPOPULATIONS);
+    fprintf(rfile, "\n");
     
     // demography
     fprintf(rfile, "# demography\nnDEMOGRAPHIC_CHANGES <- %i\n", nDEMOGRAPHIC_CHANGES);
@@ -1046,8 +1098,9 @@ void printParametersToFiles(unsigned RNG_SEED)
     fprintf(rfile, "\n");
     
     // states at end of run
-    fprintf(rfile, "N <- %li\n", N);
+    fprintf(rfile, "#states of variables at the end of the run\nN <- %li\n", N);
     fprintf(rfile, "nSelectedSites <- %li\n", nSelectedSites);
+    fprintf(rfile, "nTrackedSitesInParents <- %llu\n", nTrackedSitesInParents);
     fprintf(rfile, "abundances <- c(%li", abundances[0]);
     for ( i = 1; i < nPOPULATIONS; i++ )
         fprintf(rfile, ",%li", abundances[i]);
@@ -1438,6 +1491,11 @@ unsigned readInParametersFromFile(void)
             if ( VERBOSE )
                 printf("Found ENVIRONMENT_TYPE (%s) = %s = %i\n", option, option2, FITNESS_MODEL);
         }
+        else if ( !strcmp( option, "TIME_SERIES_SAMPLE_FREQ"  ) ) { // divergent selection mean coefficient
+            fscanf(pfile, "%li", &TIME_SERIES_SAMPLE_FREQ);
+            if ( VERBOSE )
+                printf("Found TIME_SERIES_SAMPLE_FREQ (%s) = %li\n", option, TIME_SERIES_SAMPLE_FREQ);
+        }
 
         
         option[0] = '\0'; // reset to avoid double setting last option
@@ -1561,6 +1619,23 @@ void reproduction(void)
     locpt = offspringLocations; // pointer to location of first individual
     lipt = individualsInDeme;
     memset( alleleCounts, 0, nSITES * sizeof(unsigned long long int) );
+    
+    // some debug code
+    /*
+    if ( t >= 10 ) {
+        printf("\nTracked sites in parents (%llu) @ t = %li:\n", nTrackedSitesInParents, t);
+        for ( i = 0; i < nTrackedSitesInParents; i++ )
+            printf("%llu\t", parentalTrackedSiteIndexes[i]);
+        
+        printf("\n\nTSites in offspring (%li):\n", nSitesInOffspring);
+        for ( i = 0; i < nSitesInOffspring; i++ )
+            printf("%llu\t", offsp_SiteIndexes[i]);
+        printf("\n\n");
+    }
+     */
+    
+    
+    
     for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
         noff = noffspring[pop];
         nhere = abundances[pop];
