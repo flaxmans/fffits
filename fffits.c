@@ -1187,7 +1187,7 @@ void putInMutations( short int *offspringGTs, short int *offsp_lociStates, unsig
             }
             
             // double check allele counts
-            if ( *(alleleCounts + locus) > (PLOIDY * N) ) {
+            if ( *(alleleCounts + locus) > (PLOIDY * totalOffspring) ) {
                 fprintf(stderr, "\nError in putInMutations():\n\t*(alleleCounts + locus) (%llu) out of bounds\n", *(alleleCounts + locus));
                 exit(-1);
             }
