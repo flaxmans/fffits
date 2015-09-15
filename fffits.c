@@ -59,7 +59,7 @@ long int TIME_SERIES_SAMPLE_FREQ = TIME_SERIES_SAMPLE_FREQ_DEFAULT;
 
 short int *genotypes0, *genotypes1, *gts; // pointer to memory blocks for individual genotypes
 int *locations, *linkageGroupMembership; // locations in discrete space of individuals
-unsigned long long int *parentalTrackedSiteIndexes, *siteIndexes, *SFScounts, *alleleCounts; // pointers for memory blocks for sites in genome
+unsigned long long int *parentalTrackedSiteIndexes, *siteIndexes, *alleleCounts; // pointers for memory blocks for sites in genome
 double *alleleFrequencies, *migrationRates, *K_VALUES, *M_VALUES, *selectionCoefficients;
 short int *sitesStatuses; // codes for locus's current status (see below for codes)
 short int currentBlock = 0; // keep track of which block is in use
@@ -72,6 +72,8 @@ _Bool VERBOSE = 0;
 int currentMigrationPeriod = 0;
 int currentDemographyPeriod = 0;
 double *migRatePt, *KvalPt;
+FILE *dataFile_alleleFreqTS, *dataFile_alleleFreqTSbyPop, *dataFile_SFS_TS, *dataFile_segSiteTS;
+FILE *dataFile_derivedFixationTS;
 
 // site classifications and magic numbers
 int *siteClassifications;
@@ -115,8 +117,9 @@ void putInMutations( short int *offspringGTs, short int *offsp_lociStates, unsig
 double randExp(double meanValue);
 unsigned readInParametersFromFile(void);
 void reproduction(void);
+void setUpDataFiles(void);
 void setUpGenome(void);
-void setUpInitialAlleleFrequencies(double *expectedFreq);
+void setUpInitialAlleleFrequencies(double *expectedFreq, unsigned long long int *SFScounts);
 void setUpPopulations(void);
 void usage(char *progname);
 //void viabilitySelection(void);
@@ -153,6 +156,7 @@ int main(int argc, char *argv[])
     initializeRNG(RNG_SEED);
     setUpGenome();
     setUpPopulations();
+    setUpDataFiles();
     
     for ( t = 1; t <= nGENERATIONS; t++ ) {
 
@@ -211,43 +215,70 @@ long int calculateNumOffspring(int pop)
 void calculatePopGenMetrics(void)
 {
     long int i, j, alleleCountsByPopulation[(nPOPULATIONS * nTrackedSitesInParents)];
-    unsigned long long int SFScountsByPopulation[(nPOPULATIONS * 2 * N)];
-    unsigned long long int siteMasterIndex;
+    unsigned long long int SFScountsByPopulation[(nPOPULATIONS * 2 * N)], nDivSites = 0, nPosSites = 0;
+    unsigned long long int siteMasterIndex, nSegSites = 0, nNeutralSites = 0, nBGsites = 0, SFScounts[(PLOIDY * N)];
     int pop;
-    short int *sipt;
+    short int *sipt, siteClass;
     long int nhere, count;
-    FILE *finalGlobalAlleleStats;
     double oneOver2N;
     
     oneOver2N = 1.0 / (((double) PLOIDY) * ((double) N));
     
-    if ( t == nGENERATIONS ) {
-        finalGlobalAlleleStats = fopen("Final_GlobalAlleleStats.csv", "w");
-        fprintf(finalGlobalAlleleStats, "SiteIndex,LinkageGroup,DerivedAlleleCount,DerivedAlleleFreq,SelectionCoefficient,SiteClassCode\n");
-    }
+    for ( count = 0; count < (PLOIDY * N); count++ )
+        SFScounts[count] = 0;
     
-    sipt = gts;
     for ( i = 0; i < nTrackedSitesInParents; i++ ) {
+        sipt = gts + (PLOIDY * i);
+        
+        // overall counts and frequencies
         siteMasterIndex = *(parentalTrackedSiteIndexes + i);
         if ( *(sitesStatuses + siteMasterIndex) == LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
+            // site types
+            nSegSites++;
+            siteClass = *(siteClassifications + siteMasterIndex);
+            if ( siteClass == SITE_CLASS_NEUTRAL )
+                nNeutralSites++;
+            else if ( siteClass == SITE_CLASS_BGS )
+                nBGsites++;
+            else if ( siteClass == SITE_CLASS_DIV )
+                nDivSites++;
+            else if ( siteClass == SITE_CLASS_POS )
+                nPosSites++;
+            else {
+                fprintf(stderr, "\nError in calculatePopGenMetrics():\n siteClass = %i not recognized\n", siteClass);
+                exit(-1);
+            }
+            
+            // global allele frequencies and SFS
             count = *(alleleCounts + siteMasterIndex);
+            
             if ( count <= 0 ) {
                 fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tcount (%li) <= 0 for siteMasterIndex = %llu\n", count, siteMasterIndex);
                 exit(-1);
             }
-            if ( t == nGENERATIONS ) {
-                fprintf(finalGlobalAlleleStats, "%llu,%i,%li,%E,%E,%i\n", siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), count, (((double) count) * oneOver2N), *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
-            }
+            fprintf(dataFile_alleleFreqTS, "%li,%llu,%i,%li,%E,%E,%i\n", t, siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), count, (((double) count) * oneOver2N), *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
+            
+            *(SFScounts + count) += 1;
+        }
+        
+        for ( j = 0; j < nPOPULATIONS; j++ ) {
+            
+        }
+    }
+    
+    // print segregating site counts
+    fprintf(dataFile_segSiteTS, "%li,%llu,%llu,%llu,%llu,%llu\n", t, nSegSites, nNeutralSites, nBGsites, nPosSites, nDivSites);
+    
+    // print the SFS
+    for ( i = 1; i < (PLOIDY * N); i++ ) {
+        if ( *(SFScounts + i) ) {
+            fprintf(dataFile_SFS_TS, "%li,%li,%llu\n", t, i, *(SFScounts + i));
         }
     }
     
     for ( i = 0; i < nPOPULATIONS; i++ ) {
         
     }
-    
-    
-    if ( t == nGENERATIONS )
-        fclose(finalGlobalAlleleStats);
     
 }
 
@@ -603,6 +634,12 @@ void finalTasks(unsigned RNG_SEED)
 {
     printParametersToFiles(RNG_SEED);
     
+    fclose(dataFile_alleleFreqTS);
+    fclose(dataFile_alleleFreqTSbyPop);
+    fclose(dataFile_SFS_TS);
+    fclose(dataFile_segSiteTS);
+    fclose(dataFile_derivedFixationTS);
+    
     free(genotypes0);
     free(genotypes1);
     free(parentalTrackedSiteIndexes);
@@ -610,7 +647,6 @@ void finalTasks(unsigned RNG_SEED)
     free(sitesStatuses);
     free(alleleFrequencies);
     free(alleleCounts);
-    free(SFScounts);
     free(siteClassifications);
     free(DEMOGRAPHIC_CHANGE_TIMES);
     free(K_VALUES);
@@ -845,10 +881,13 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
                     parentalLocusIndexes++; // advance to index of next parental site/locus
                     parentPoint += PLOIDY; // advance to next site in genome
                     while ( *(sitesStatuses + *parentalLocusIndexes) != LOCUS_STATUS_VARIABLE_IN_PARENTS && parentalLocusCounter < nTrackedSitesInParents ) {
-                        parentalLocusIndexes++; // advance to index of next parental site/locus
-                        parentPoint += PLOIDY; // advance to next site in genome
                         parentalLocusCounter++; // count prior locus toward those that are "done"
                         // the while part helps skip over loci that will no longer be tracked
+                        if ( parentalLocusCounter < nTrackedSitesInParents ) {
+                            // if statement prevents seg fault on last While check
+                            parentalLocusIndexes++; // advance to index of next parental site/locus
+                            parentPoint += PLOIDY; // advance to next site in genome
+                        }
                     }
                 }
             }
@@ -989,6 +1028,7 @@ void printParametersToFiles(unsigned RNG_SEED)
     
     rfile = fopen("metadataAndParameters.R","w");
     fprintf(rfile, "RNG_SEED <- %u\n", RNG_SEED);
+    fprintf(rfile, "TIME_SERIES_SAMPLE_FREQ <- %li\n", TIME_SERIES_SAMPLE_FREQ);
     fprintf(rfile, "nGENERATIONS <- %li\n", nGENERATIONS);
     fprintf(rfile, "nPOPULATIONS <- %i\n", nPOPULATIONS);
     fprintf(rfile, "\n");
@@ -1559,7 +1599,7 @@ unsigned readInParametersFromFile(void)
 
 void reproduction(void)
 {
-    int pop, *locpt, *offspringLocations;
+    int pop, *locpt, *offspringLocations, nDerivedFixations = 0;
     long int i, j, noffspring[nPOPULATIONS], totalOffspring, mommy, daddy, noff, nhere;
     long int momIndex, dadIndex, driftLosses, actuallyVariable;
     short int *offspringGTs, *sipt;
@@ -1692,6 +1732,10 @@ void reproduction(void)
             *sipt = LOCUS_STATUS_VARIABLE_IN_PARENTS;
             actuallyVariable++;
         }
+        else if ( *ullipt == (PLOIDY * N) ) {
+            fprintf( dataFile_derivedFixationTS, "%li,%llu,%i,%E\n", t, locus, *(siteClassifications + locus), *(selectionCoefficients + locus) );
+            nDerivedFixations++;
+        }
         else if ( *sipt == LOCUS_STATUS_TRACKED_IN_PARENTS ) {
             if ( VERBOSE )
                 printf("\nLocus %llu lost in time step %li\n", locus, t);
@@ -1701,8 +1745,8 @@ void reproduction(void)
         ullipt++;
     }
     
-    if ( (driftLosses + actuallyVariable) != nSitesInOffspring ) {
-        fprintf(stderr, "\nError in reproduction():\n\t(driftLosses (%li) + actuallyVariable (%li)) != nSitesInOffspring (%li) )\n", driftLosses, actuallyVariable, nSitesInOffspring);
+    if ( (driftLosses + actuallyVariable + nDerivedFixations) != nSitesInOffspring ) {
+        fprintf(stderr, "\nError in reproduction():\n\t(driftLosses (%li) + actuallyVariable (%li)) + nDerivedFixations (%i) != nSitesInOffspring (%li) )\n", driftLosses, actuallyVariable, nDerivedFixations, nSitesInOffspring);
         exit(-1);
     }
     
@@ -1725,10 +1769,34 @@ void reproduction(void)
 }
 
 
+void setUpDataFiles(void)
+{
+    int i;
+
+    dataFile_alleleFreqTS = fopen("AlleleFreqTS.csv", "w");
+    fprintf(dataFile_alleleFreqTS, "Time,SiteIndex,LinkageGroup,DerivedAlleleCount,DerivedAlleleFreq,SelectionCoefficient,SiteClassCode\n");
+    
+    dataFile_alleleFreqTSbyPop = fopen("AlleleFreqTSbyPop.csv", "w");
+    fprintf(dataFile_alleleFreqTSbyPop, "Time,SiteIndex");
+    for ( i = 0; i < nPOPULATIONS; i++ )
+        fprintf(dataFile_alleleFreqTSbyPop, ",CountInPop%i", i);
+    fprintf(dataFile_alleleFreqTSbyPop, "\n");
+    
+    dataFile_SFS_TS = fopen("SFStimeSeries.csv", "w");
+    fprintf(dataFile_SFS_TS, "Time,DerivedAlleleCopyNumber,NumberOfSites\n");
+    
+    dataFile_segSiteTS = fopen("SegregatingSitesTS.csv", "w");
+    fprintf(dataFile_segSiteTS, "Time,nSegregatingSites,nNeutralSites,nBackgroundSelSites,nPositiveSelSites,nDivergentSelSites\n");
+    
+    dataFile_derivedFixationTS = fopen("DerivedFixationRecord.csv", "w");
+    fprintf(dataFile_derivedFixationTS, "Time,SiteIndex,SiteClassCode,SelectionCoefficient\n");
+}
+
+
 void setUpGenome(void)
 {
     double theta, expectedSegSites, *expectedFreq, *dpt, value;
-    unsigned long long int foo, *ullpt, sitesPerLinkageGroup, lgCount;
+    unsigned long long int foo, *ullpt, sitesPerLinkageGroup, lgCount, SFScounts[(PLOIDY * N)];
     long int i;
     int dumi, currentLinkageGroup;
     char str[80];
@@ -1783,8 +1851,9 @@ void setUpGenome(void)
     alleleFrequencies = (double *) malloc( nSITES * sizeof(double)); // frequencies (0 to 1) by site
     alleleCounts = (unsigned long long int *) malloc( nSITES * sizeof(unsigned long long int));
     memset( alleleCounts, 0, nSITES * sizeof(unsigned long long int) );
-    SFScounts = (unsigned long long int *) malloc( PLOIDY * N * sizeof(unsigned long long int) );
-    setUpInitialAlleleFrequencies(expectedFreq);
+    for ( foo = 0; foo < (PLOIDY * N); foo++ )
+        *(SFScounts + foo) = 0;
+    setUpInitialAlleleFrequencies(expectedFreq, SFScounts);
     
     // pick allele frequencies using the Ewens sampling formula from Wakeley's book.
 
@@ -1956,7 +2025,7 @@ void setUpGenome(void)
 }
 
 
-void setUpInitialAlleleFrequencies(double *expectedFreq)
+void setUpInitialAlleleFrequencies(double *expectedFreq, unsigned long long int *SFScounts)
 {
     unsigned long long int i, copies, focalSiteIndex;
     double dum, *dpt, twoN;
