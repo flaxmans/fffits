@@ -20,4 +20,21 @@ any(errs)
 any(demeIndexes$V1 >= length(demeIndexes$V2))
 any(demeIndexes$V1 < 0)
 
+#check sums that should work out
+segSitesTS <- read.csv("SegregatingSitesTS.csv")
+nsamps <- dim(segSitesTS)[1]
+for ( i in 1:nsamps ) {
+  if ( segSitesTS$nSegregatingSites[i] != (segSitesTS$nNeutralSites[i] + segSitesTS$nBackgroundSelSites[i] + segSitesTS$nPositiveSelSites[i] + segSitesTS$nDivergentSelSites[i]) ) {
+    print("Error in Seg Sites data!")
+  } else {
+    print(i)
+  }
+}
 
+SFSdata <- read.csv("SFStimeSeries.csv")
+nsamps <- dim(SFSdata)[1]
+for ( i in 1:nsamps ) {
+  if ( SFSdata$NumberOfSites[i] != (SFSdata$NumNeutralSites[i] + SFSdata$NumBGSsites[i] + SFSdata$NumPOSsites[i] + SFSdata$NumDIVsites[i]) ) {
+    print("Error in SFSdata!")
+  }
+}

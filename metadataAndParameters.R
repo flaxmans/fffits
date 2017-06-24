@@ -1,6 +1,6 @@
 RNG_SEED <- 1
-TIME_SERIES_SAMPLE_FREQ <- 1000
-nGENERATIONS <- 10000
+TIME_SERIES_SAMPLE_FREQ <- 100
+nGENERATIONS <- 1000
 nPOPULATIONS <- 4
 
 # demography
@@ -28,7 +28,7 @@ PLOIDY <- 2
 RECOMBINATION_RATE_PER_KB <- 1.000000E-04
 MU <- 1.000000E-09
 GENOME_MU <- 2.000000E-03
-THETA <- 4.079600E+01
+THETA <- 4.066800E+01
 
 # natural selection
 INCLUDE_SELECTION <- 1
@@ -65,8 +65,8 @@ LOCUS_STATUS_TRACKED_IN_PARENTS <- 4
 CODOMINANCE <- 5.000000E-01
 
 #states of variables at the end of the run
-N <- 10199
-nSelectedSites <- 28
-nTrackedSitesInParents <- 377
-abundances <- c(2583,2513,2472,2631)
+N <- 10167
+nSelectedSites <- 23
+nTrackedSitesInParents <- 424
+abundances <- c(2479,2525,2608,2555)
 
