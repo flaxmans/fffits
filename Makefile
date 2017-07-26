@@ -1,14 +1,22 @@
 #
 TARGET=fffits
 CC=gcc
-CFLAGS=-lm -I/usr/local/include/gsl -L/usr/local/lib -lgsl -lgslcblas -O3
+CFLAGS=-O3
+GSLFLAGS=-I/usr/local/include/gsl
+LIBFLAGS=-lm -lgsl -lgslcblas -L/usr/local/lib
 
 # rule to build fffits
-$(TARGET) : $(TARGET).c
-	$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).c
+$(TARGET) : $(TARGET).o initialization.o
+	$(CC) $(CFLAGS) $(GSLFLAGS) $(LIBFLAGS) -o $(TARGET) initialization.o $(TARGET).o
+
+# building a .o from a .c
+.c.o:
+	$(CC) $(CFLAGS) $(GSLFLAGS) -c $<
 
 # rule to clean
 clean :
 	rm -f $(TARGET)
+	rm -f $(TARGET).o
+	rm -f intialization.o
 
 
