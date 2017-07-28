@@ -37,11 +37,16 @@ double PROBABILITY_SITE_DIV = PROBABILITY_SITE_SELECTED_DEFAULT;
 double PROBABILITY_SITE_POS = PROBABILITY_SITE_SELECTED_DEFAULT;
 double PROBABILITY_SITE_BGS = PROBABILITY_SITE_SELECTED_DEFAULT;
 double PROBABILITY_SITE_NEUTRAL;
-int ENVIRONMENT_TYPE = 0, FITNESS_MODEL = 0; // defaults for how selection works; magic numbers defined below
-double *environmentGradient, ENVT_MAX = 1.0, ENVT_MIN = -1.0;
-long int nSelectedSites;
+int ENVIRONMENT_TYPE = ENVT_TYPE_GRADIENT;
+double ENVT_MAX = ENVT_MAX_DEFAULT;
+double ENVT_MIN = ENVT_MIN_DEFAULT;
+int FITNESS_MODEL = FITNESS_MODEL_MULTIPLICATIVE; // defaults for how selection works; see defines in fffits.h
 long int TIME_SERIES_SAMPLE_FREQ = TIME_SERIES_SAMPLE_FREQ_DEFAULT;
+_Bool TEST_MODE = 0;
+_Bool VERBOSE = 0;
 
+long int nSelectedSites;
+double *environmentGradient;
 short int *genotypes0, *genotypes1, *gts; // pointer to memory blocks for individual genotypes
 int *locations, *linkageGroupMembership; // locations in discrete space of individuals
 unsigned long long int *parentalTrackedSiteIndexes, *siteIndexes, *alleleCounts; // pointers for memory blocks for sites in genome
@@ -53,18 +58,16 @@ long int t; // time counter
 long int N; // current total population size
 long int *abundances; // size of each population
 unsigned long long int nTrackedSitesInParents = 0;
-_Bool VERBOSE = 0;
 int currentMigrationPeriod = 0;
 int currentDemographyPeriod = 0;
 double *migRatePt, *KvalPt;
-FILE *dataFile_alleleFreqTS, *dataFile_alleleFreqTSbyPop, *dataFile_SFS_TS, *dataFile_segSiteTS;
+FILE *dataFile_alleleFreqTS, *dataFile_SFS_TS, *dataFile_segSiteTS; // *dataFile_alleleFreqTSbyPop,
 FILE *dataFile_derivedFixationTS;
 int *siteClassifications; // site classifications
 
 
 // function declarations
 long int calculateNumOffspring(int pop);
-void calculatePopGenMetrics(void);
 short int * checkMemoryBlocks(long int totalOffspring, long int nSitesInOffspring);
 void chooseParents(long int *mommy, long int *daddy, double *dpt, long int nparents);
 void chooseParentsAtRandom(long int *mommy, long int *daddy, long int *randomNumberLine, long int nhere);
@@ -127,90 +130,21 @@ long int calculateNumOffspring(int pop)
     
     nhere = *(abundances + pop);
     if ( nhere > 1 ) {
+		// ensures that selfing is not allowed because later on
+		// mom and dad must be different individuals (in chooseParents())
         if ( FIXED_POP_SIZE )
             numOffspring = (long int) *(KvalPt + pop);
         else {
             k = *(KvalPt + pop);
             currentPop = ((double) nhere);
             expected = currentPop + (currentPop * MAX_POP_GROWTH_RATE * (k - currentPop)/k); // logistic equation
-            numOffspring = gsl_ran_poisson( rngState, expected );
+            numOffspring = gsl_ran_poisson( rngState, expected ); // potential optimization with lookup table??
         }
     }
     else
         numOffspring = 0;
     
     return numOffspring;
-}
-
-
-void calculatePopGenMetrics(void)
-{
-    long int i, j, alleleCountsByPopulation[(nPOPULATIONS * nTrackedSitesInParents)];
-    unsigned long long int SFScountsByPopulation[(nPOPULATIONS * 2 * N)], nDivSites = 0, nPosSites = 0;
-    unsigned long long int siteMasterIndex, nSegSites = 0, nNeutralSites = 0, nBGsites = 0, SFScounts[(PLOIDY * N)];
-    int pop;
-    short int *sipt, siteClass;
-    long int nhere, count;
-    double oneOver2N;
-    
-    oneOver2N = 1.0 / (((double) PLOIDY) * ((double) N));
-    
-    for ( count = 0; count < (PLOIDY * N); count++ )
-        SFScounts[count] = 0;
-    
-    for ( i = 0; i < nTrackedSitesInParents; i++ ) {
-        sipt = gts + (PLOIDY * i);
-        
-        // overall counts and frequencies
-        siteMasterIndex = *(parentalTrackedSiteIndexes + i);
-        if ( *(sitesStatuses + siteMasterIndex) == LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
-            // site types
-            nSegSites++;
-            siteClass = *(siteClassifications + siteMasterIndex);
-            if ( siteClass == SITE_CLASS_NEUTRAL )
-                nNeutralSites++;
-            else if ( siteClass == SITE_CLASS_BGS )
-                nBGsites++;
-            else if ( siteClass == SITE_CLASS_DIV )
-                nDivSites++;
-            else if ( siteClass == SITE_CLASS_POS )
-                nPosSites++;
-            else {
-                fprintf(stderr, "\nError in calculatePopGenMetrics():\n siteClass = %i not recognized\n", siteClass);
-                exit(-1);
-            }
-            
-            // global allele frequencies and SFS
-            count = *(alleleCounts + siteMasterIndex);
-            
-            if ( count <= 0 ) {
-                fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tcount (%li) <= 0 for siteMasterIndex = %llu\n", count, siteMasterIndex);
-                exit(-1);
-            }
-            fprintf(dataFile_alleleFreqTS, "%li,%llu,%i,%li,%E,%E,%i\n", t, siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), count, (((double) count) * oneOver2N), *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
-            
-            *(SFScounts + count) += 1;
-        }
-        
-        for ( j = 0; j < nPOPULATIONS; j++ ) {
-            
-        }
-    }
-    
-    // print segregating site counts
-    fprintf(dataFile_segSiteTS, "%li,%llu,%llu,%llu,%llu,%llu\n", t, nSegSites, nNeutralSites, nBGsites, nPosSites, nDivSites);
-    
-    // print the SFS
-    for ( i = 1; i < (PLOIDY * N); i++ ) {
-        if ( *(SFScounts + i) ) {
-            fprintf(dataFile_SFS_TS, "%li,%li,%llu\n", t, i, *(SFScounts + i));
-        }
-    }
-    
-    for ( i = 0; i < nPOPULATIONS; i++ ) {
-        
-    }
-    
 }
 
 
@@ -365,7 +299,7 @@ void computeFitness(double *fitnessValues)
                     if ( FITNESS_MODEL == FITNESS_MODEL_ADDITIVE )
                         *dpt += -2.0 * cf_s * cf_gradient;
                     else
-                        *dpt *= 1.0 - (2.0 * cf_s * cf_gradient);
+                        *dpt *= 1.0 - (2.0 * cf_s * cf_gradient); // note cf_gradient can be + or -
                 }
                 else if ( gtsum != 1 ) {
                     fprintf(stderr, "\nError in computeFitness():\n\tgtsum (= %i) out of bounds.\n", gtsum);
@@ -393,6 +327,7 @@ void computeFitness(double *fitnessValues)
         fclose(cf_fitvals);
     }
     dpt = fitnessValues;
+	// correct for negative fitness values if they occur:
     for ( i = 0; i < N; i++ ) {
         if ( *dpt < 0.0 )
             *dpt = 0.0;
@@ -566,7 +501,7 @@ void finalTasks(unsigned RNG_SEED)
     printParametersToFiles(RNG_SEED);
     
     fclose(dataFile_alleleFreqTS);
-    fclose(dataFile_alleleFreqTSbyPop);
+//    fclose(dataFile_alleleFreqTSbyPop);
     fclose(dataFile_SFS_TS);
     fclose(dataFile_segSiteTS);
     fclose(dataFile_derivedFixationTS);
@@ -669,20 +604,21 @@ void makeDemesIndexes(long int *individualsInDeme)
     demePosition[0] = 0;
     for ( i = 1; i < nPOPULATIONS; i++ )
         demePosition[i] = demePosition[(i-1)] + abundances[(i-1)];
+	// demePosition holds the indexes of where to jump into the array for each population
     
     
-    ipt = locations;
+    ipt = locations;  // locations is the global vector giving the deme number of each individual
     
     for ( i = 0; i < N; i++ ) {
-        loc = *ipt;
-        spot = demePosition[loc];
+        loc = *ipt; // deme number
+        spot = demePosition[loc]; // where it belongs in the individualsInDeme array
         *(individualsInDeme + spot) = i;
         demePosition[loc] = demePosition[loc] + 1;
         
         ipt++;
     }
     
-    if ( VERBOSE ) {
+    if ( TEST_MODE ) {
         FILE *testMakeIndexes;
         testMakeIndexes = fopen("TestMakeDemesIndexes.txt","w");
         for ( i = 0; i < N; i++ ) {
@@ -720,7 +656,7 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
         parentalLocusIndexes = parentalTrackedSiteIndexes;
         if ( nTrackedSitesInParents ) {
             while ( *(sitesStatuses + *parentalLocusIndexes) != LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
-                parentalLocusCounter++;
+                parentalLocusCounter++; // so we can start at the first site (locus) that needs to be inherited
                 parentalLocusIndexes++;
             }
         }
@@ -816,11 +752,11 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
             }
             
             if ( *sipt )
-                *(alleleCounts + focalSite) += *sipt;
+                *(alleleCounts + focalSite) += *sipt; // record derived allele counts
             
-            sipt += PLOIDY;
-            offsp_SIpt++;
-            offsp_ls++;
+            sipt += PLOIDY; // move to next locus in offspring haplotype
+            offsp_SIpt++; // next site index in offspring
+            offsp_ls++; // next locus state
         }
     }
     
@@ -1123,393 +1059,8 @@ void putInMutations( short int *offspringGTs, short int *offsp_lociStates, unsig
 double randExp(double meanValue)
 {
     return ( (log(1.0 - gsl_rng_uniform(rngState))) * (-meanValue) );
+	// potential optimization with lookup table??
 }
-
-
-unsigned readInParametersFromFile(void)
-{
-    char c, option[80], option2[80];
-    long int INITIAL_N;
-    unsigned long long int foo;
-    int i, j, k, dumi, temp;
-    unsigned RNG_SEED = 1;
-    double value;
-    FILE *pfile;
-    _Bool nPopSet = 0, migrationSet = 0, demographySet = 0;
-    
-    pfile = fopen("parameters.ini.txt", "r");
-    if ( pfile == NULL ) {
-        fprintf(stderr, "\nError in readInParametersFromFile():\n\tparameters.ini.txt not found!\n");
-        exit(-1);
-    }
-    
-    // the action of reading.  Order of things in parameters.ini.txt file matters!
-    while ( !feof(pfile) ) {
-        fscanf(pfile, "%s", option);
-        
-        if ( !strcmp( option, "RNG_SEED" ) ) { // set RNG seed value
-            fscanf(pfile, "%i", &RNG_SEED);
-            if ( VERBOSE )
-                printf("Found RNG_SEED (%s) = %u\n", option, RNG_SEED);
-        }
-        else if ( !strcmp( option, "nGENERATIONS" ) ) { // set RNG seed value
-            fscanf(pfile, "%li", &nGENERATIONS);
-            if ( VERBOSE )
-                printf("Found nGENERATIONS (%s) = %li\n", option, nGENERATIONS);
-        }
-        else if ( !strcmp( option, "nPOPULATIONS" ) ) { // set number of populations
-            fscanf(pfile, "%i", &nPOPULATIONS);
-            nPopSet = 1;
-            if ( nPOPULATIONS < 0 ) {
-                fprintf(stderr, "\nError in readInParametersFromFile():\n\t");
-                fprintf(stderr, "nPOPULATIONS (%i) < 0\n\t", nPOPULATIONS);
-                fprintf(stderr, "*** Exiting *** \n");
-                exit(-1);
-            }
-            if ( VERBOSE )
-                printf("Found nPOPULATIONS (%s) = %i\n", option, nPOPULATIONS);
-        }
-        else if ( !strcmp( option, "nDEMOGRAPHIC_CHANGES" ) ) { // set demography
-            if ( !nPopSet ) {
-                fprintf(stderr, "\nWarning in readInParametersFromFile():\n\t");
-                fprintf(stderr, "nPOPULATIONS should be set in parameters.ini.txt before nDEMOGRAPHIC_CHANGES\n\t");
-            }
-            
-            demographySet = 1;
-            
-            // number of demographic events:
-            fscanf(pfile, "%i", &nDEMOGRAPHIC_CHANGES);
-            if ( VERBOSE)
-                printf("Found nDEMOGRAPHIC_CHANGES (%s) = %i\n", option, nDEMOGRAPHIC_CHANGES);
-            
-            // times of demographic events:
-            fscanf(pfile, "%s", option);
-            if ( strcmp( option, "DEMOGRAPHIC_CHANGE_TIMES" ) ) {
-                wrongParametersIniOption( "DEMOGRAPHIC_CHANGE_TIMES", "nDEMOGRAPHIC_CHANGES", option );
-            }
-            else {
-                if ( nDEMOGRAPHIC_CHANGES > 0 ) {
-                    DEMOGRAPHIC_CHANGE_TIMES = (long int *) malloc( nDEMOGRAPHIC_CHANGES * sizeof(long int));
-                    for ( i = 0; i < nDEMOGRAPHIC_CHANGES; i++ ) {
-                        fscanf(pfile, "%li", (DEMOGRAPHIC_CHANGE_TIMES + i));
-                    }
-                }
-                else {
-                    DEMOGRAPHIC_CHANGE_TIMES = (long int *) malloc( sizeof(long int) );
-                    *DEMOGRAPHIC_CHANGE_TIMES = 0;
-                }
-            }
-            
-            // K values for demographic event periods:
-            fscanf(pfile, "%s", option);
-            if ( strcmp( option, "K_VALUES" ) ) {
-                wrongParametersIniOption( "K_VALUES", "DEMOGRAPHIC_CHANGE_TIMES", option );
-            }
-            else {
-                INITIAL_N = 0;
-                K_VALUES = (double *) malloc( (nDEMOGRAPHIC_CHANGES + 1) * nPOPULATIONS * sizeof(double) );
-                for ( i = 0; i < ((nDEMOGRAPHIC_CHANGES + 1) * nPOPULATIONS); i++ ) {
-                    fscanf(pfile, "%lf", (K_VALUES + i));
-                    if ( i < nPOPULATIONS )
-                        INITIAL_N += K_VALUES[i];
-                    if ( *(K_VALUES+i) < 0.0 ) {
-                        fprintf(stderr, "\nError in readInParametersFromFile():\n\t");
-                        fprintf(stderr, "K_VALUES should be non-negative, but instead found %iith value = %f.\n\tPlease fix parameters.ini.txt\n", (i+1), *(K_VALUES+i));
-                        fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
-                        exit(-1);
-                    }
-                }
-            }
-            // test check
-            if ( VERBOSE ) {
-                printf("Found DEMOGRAPHIC_CHANGE_TIMES: ");
-                for ( i = 0; i < nDEMOGRAPHIC_CHANGES; i++ ) {
-                    printf(" %li", DEMOGRAPHIC_CHANGE_TIMES[i]);
-                }
-                printf("\nINITIAL_N = %li\nFound the following K_VALUES:\n", INITIAL_N);
-                for ( i = 0; i < ((nDEMOGRAPHIC_CHANGES + 1) * nPOPULATIONS); i++ ) {
-                    printf("\t%f", K_VALUES[i]);
-                    if ( i % nPOPULATIONS == nPOPULATIONS - 1 )
-                        printf("\n");
-                }
-            }
-            
-
-        }
-        else if ( !strcmp( option, "FIXED_POP_SIZE"  ) ) { // whether or not ppulation sizes are fixed
-            fscanf(pfile, "%i", &temp);
-            FIXED_POP_SIZE = temp;
-            if ( VERBOSE )
-                printf("Found FIXED_POP_SIZE (%s) = %i\n", option, FIXED_POP_SIZE);
-        }
-        else if ( !strcmp( option, "MAX_POP_GROWTH_RATE"  ) ) { // maximum population growth rate in logistic equation
-            fscanf(pfile, "%lf", &MAX_POP_GROWTH_RATE);
-            if ( FIXED_POP_SIZE ) {
-                fprintf(stderr, "\nWarning in readInParametersFromFile():\n\t");
-                fprintf(stderr, "Since population size is fixed, MAX_POP_GROWTH_RATE won't be used\n\t");
-            }
-            else if ( VERBOSE )
-                printf("Found MAX_POP_GROWTH_RATE (%s) = %f\n", option, MAX_POP_GROWTH_RATE);
-        }
-        else if ( !strcmp( option, "nMIGRATION_CHANGES" ) ) { // set up migration rates
-            if ( !nPopSet ) {
-                fprintf(stderr, "\nWarning in readInParametersFromFile():\n\t");
-                fprintf(stderr, "nPOPULATIONS should be set in parameters.ini.txt before nMIGRATION_CHANGES\n\t");
-            }
-            migrationSet = 1;
-            
-            // number of migration change events:
-            fscanf(pfile, "%i", &nMIGRATION_CHANGES);
-            if ( VERBOSE )
-                printf("Found nMIGRATION_CHANGES (%s) = %i\n", option, nMIGRATION_CHANGES);
-            
-            // times of migration change events:
-            fscanf(pfile, "%s", option);
-            if ( strcmp( option, "MIGRATION_CHANGE_TIMES" ) ) {
-                wrongParametersIniOption( "MIGRATION_CHANGE_TIMES", "nMIGRATION_CHANGES", option);
-            }
-            else {
-                if ( nMIGRATION_CHANGES > 0 ) {
-                    MIGRATION_CHANGE_TIMES = (long int *) malloc( nMIGRATION_CHANGES * sizeof(long int));
-                    for ( i = 0; i < nMIGRATION_CHANGES; i++ ) {
-                        fscanf(pfile, "%li", (MIGRATION_CHANGE_TIMES + i));
-                    }
-                }
-                else {
-                    MIGRATION_CHANGE_TIMES = (long int *) malloc( sizeof(long int) );
-                    *MIGRATION_CHANGE_TIMES = 0;
-                }
-            }
-            
-            // migration rate values for periods.  expecting nPOPULATIONS x nPOPULATIONS entries (like a matrix) for each period
-            fscanf(pfile, "%s", option);
-            if ( strcmp( option, "M_VALUES" ) ) {
-                wrongParametersIniOption( "M_VALUES", "MIGRATION_CHANGE_TIMES", option);
-            }
-            else {
-                M_VALUES = (double *) malloc( nPOPULATIONS * nPOPULATIONS * (nMIGRATION_CHANGES + 1) * sizeof(double) );
-                dumi = 0;
-                for ( i = 0; i < (nMIGRATION_CHANGES+1); i++ ) {
-                    for ( j = 0; j < nPOPULATIONS; j++ ) {
-                        for ( k = 0; k < nPOPULATIONS; k++ ) {
-                            fscanf(pfile, "%lf", (M_VALUES + dumi));
-                            value =  *(M_VALUES + dumi);
-                            if ( value < 0.0 || value > 1.0 ) {
-                                fprintf(stderr, "\nError in readInParametersFromFile():\n\t");
-                                fprintf(stderr, "found migration rate value out of bounds [0,1] = %f\n\t", value);
-                                fprintf(stderr, "Please fix parameters.ini.txt\n");
-                                fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
-                                exit(-1);
-                            }
-                            else if ( j == k && value > 0.0 ) {
-                                fprintf(stderr, "\nError in readInParametersFromFile():\n\t");
-                                fprintf(stderr, "found non-zero migration rate on diagonal = %f\n\t", value);
-                                fprintf(stderr, "Please fix parameters.ini.txt\n");
-                                fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
-                                exit(-1);
-                            }
-                            dumi++;
-                        }
-                    }
-                }
-            }
-            // test check
-            if ( VERBOSE ) {
-                printf("Found MIGRATION_CHANGE_TIMES: ");
-                for ( i = 0; i < nMIGRATION_CHANGES; i++ ) {
-                    printf(" %li", MIGRATION_CHANGE_TIMES[i]);
-                }
-                printf("\nFound M_VALUES:\n");
-                dumi = 0;
-                for ( i = 0; i < (nMIGRATION_CHANGES+1); i++ ) {
-                    for ( j = 0; j < nPOPULATIONS; j++ ) {
-                        for ( k = 0; k < nPOPULATIONS; k++ ) {
-                            printf("\t%f", M_VALUES[dumi++]);
-                        }
-                        printf("\n");
-                    }
-                    printf("\n");
-                }
-            }
-            
-            
-        }
-        else if ( !strcmp( option, "nSITES"  ) ) { // total number of sites in genome
-            fscanf(pfile, "%llu", &nSITES);
-            if ( nSITES < 1 ) {
-                fprintf(stderr, "\nError in readInParametersFromFile():\n\tnSITES (= %llu) should be > 1\n", nSITES);
-                fprintf(stderr, "Please fix parameters.ini.txt\n");
-                fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
-                exit(-1);
-            }
-            // test check
-            if ( VERBOSE )
-                printf("Found nSITES (%s) = %llu\n", option, nSITES);
-        }
-        else if ( !strcmp( option, "nLINKAGE_GROUPS"  ) ) { // total number of sites in genome
-            fscanf(pfile, "%i", &nLINKAGE_GROUPS);
-            if ( nLINKAGE_GROUPS < 1 ) {
-                fprintf(stderr, "\nError in readInParametersFromFile():\n\nLINKAGE_GROUPS (= %i) should be > 1\n", nLINKAGE_GROUPS);
-                fprintf(stderr, "Please fix parameters.ini.txt\n");
-                fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
-                exit(-1);
-            }
-            // test check
-            if ( VERBOSE )
-                printf("Found nLINKAGE_GROUPS (%s) = %i\n", option, nLINKAGE_GROUPS);
-        }
-        else if ( !strcmp( option, "RECOMBINATION_RATE_PER_KB"  ) ) { // background selection mean coefficient
-            fscanf(pfile, "%lf", &RECOMBINATION_RATE_PER_KB);
-            if ( VERBOSE )
-                printf("Found RECOMBINATION_RATE_PER_KB (%s) = %f\n", option, RECOMBINATION_RATE_PER_KB);
-        }
-        else if ( !strcmp( option, "MU"  ) ) { // background selection mean coefficient
-            fscanf(pfile, "%lf", &MU);
-            if ( VERBOSE )
-                printf("Found MU (%s) = %E\n", option, MU);
-        }
-        else if ( !strcmp( option, "INCLUDE_SELECTION"  ) ) { // using selection
-            fscanf(pfile, "%i", &temp);
-            INCLUDE_SELECTION = temp;
-            if ( VERBOSE )
-                printf("Found INCLUDE_SELECTION (%s) = %i\n", option, INCLUDE_SELECTION);
-        }
-        else if ( !strcmp( option, "MEAN_S_BGS"  ) ) { // background selection mean coefficient
-            fscanf(pfile, "%lf", &MEAN_S_BGS);
-            if ( VERBOSE )
-                printf("Found MEAN_S_BGS (%s) = %f\n", option, MEAN_S_BGS);
-        }
-        else if ( !strcmp( option, "MEAN_S_POS"  ) ) { // positive selection mean coefficient
-            fscanf(pfile, "%lf", &MEAN_S_POS);
-            if ( VERBOSE )
-                printf("Found MEAN_S_POS (%s) = %f\n", option, MEAN_S_POS);
-        }
-        else if ( !strcmp( option, "MEAN_S_DIV"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%lf", &MEAN_S_DIV);
-            if ( VERBOSE )
-                printf("Found MEAN_S_DIV (%s) = %f\n", option, MEAN_S_DIV);
-        }
-        else if ( !strcmp( option, "PROBABILITY_SITE_BGS"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%lf", &PROBABILITY_SITE_BGS);
-            if ( VERBOSE )
-                printf("Found PROBABILITY_SITE_BGS (%s) = %f\n", option, PROBABILITY_SITE_BGS);
-        }
-        else if ( !strcmp( option, "PROBABILITY_SITE_POS"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%lf", &PROBABILITY_SITE_POS);
-            if ( VERBOSE )
-                printf("Found PROBABILITY_SITE_POS (%s) = %f\n", option, PROBABILITY_SITE_POS);
-        }
-        else if ( !strcmp( option, "PROBABILITY_SITE_DIV"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%lf", &PROBABILITY_SITE_DIV);
-            if ( VERBOSE )
-                printf("Found PROBABILITY_SITE_DIV (%s) = %f\n", option, PROBABILITY_SITE_DIV);
-        }
-        else if ( !strcmp( option, "ENVIRONMENT_TYPE"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%s", option2);
-            if ( !strcmp( option2, "GRADIENT" ) )
-                ENVIRONMENT_TYPE = ENVT_TYPE_GRADIENT;
-            else if ( !strcmp( option2, "MOSAIC" ) )
-                ENVIRONMENT_TYPE = ENVT_TYPE_MOSAIC;
-            else if ( !strcmp( option2, "INVARIANT" ) )
-                ENVIRONMENT_TYPE = ENVT_TYPE_INVARIANT;
-            else {
-                fprintf(stderr, "\nError in readInParametersFromFile():\n\tENVIRONMENT_TYPE option (%s) not recognized.", option2);
-                fprintf(stderr, "\n\tUsable options are 'GRADIENT', 'MOSAIC', and 'INVARIANT'.\n\tPlease fix parameters.ini.txt\n");
-                fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
-                exit(-1);
-            }
-            if ( VERBOSE )
-                printf("Found ENVIRONMENT_TYPE (%s) = %s = %i\n", option, option2, ENVIRONMENT_TYPE);
-        }
-        else if ( !strcmp( option, "ENVT_MIN"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%lf", &ENVT_MIN);
-            if ( VERBOSE )
-                printf("Found ENVT_MIN (%s) = %f\n", option, ENVT_MIN);
-        }
-        else if ( !strcmp( option, "ENVT_MAX"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%lf", &ENVT_MAX);
-            if ( VERBOSE )
-                printf("Found ENVT_MAX (%s) = %f\n", option, ENVT_MAX);
-        }
-        else if ( !strcmp( option, "FITNESS_MODEL"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%s", option2);
-            if ( !strcmp( option2, "ADDITIVE" ) )
-                FITNESS_MODEL = FITNESS_MODEL_ADDITIVE;
-            else if ( !strcmp( option2, "MULTIPLICATIVE" ) )
-                FITNESS_MODEL = FITNESS_MODEL_MULTIPLICATIVE;
-            else {
-                fprintf(stderr, "\nError in readInParametersFromFile():\n\tFITNESS_MODEL option (%s) not recognized.", option2);
-                fprintf(stderr, "\n\tUsable options are 'ADDITIVE' and 'MULTIPLICATIVE'.\n\tPlease fix parameters.ini.txt\n");
-                fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
-                exit(-1);
-            }
-            if ( VERBOSE )
-                printf("Found ENVIRONMENT_TYPE (%s) = %s = %i\n", option, option2, FITNESS_MODEL);
-        }
-        else if ( !strcmp( option, "TIME_SERIES_SAMPLE_FREQ"  ) ) { // divergent selection mean coefficient
-            fscanf(pfile, "%li", &TIME_SERIES_SAMPLE_FREQ);
-            if ( VERBOSE )
-                printf("Found TIME_SERIES_SAMPLE_FREQ (%s) = %li\n", option, TIME_SERIES_SAMPLE_FREQ);
-        }
-
-        
-        option[0] = '\0'; // reset to avoid double setting last option
-        option2[0] = '\0';
-    }
-    
-    fclose(pfile);
-    
-    PROBABILITY_SITE_NEUTRAL = 1.0 - (PROBABILITY_SITE_BGS + PROBABILITY_SITE_DIV + PROBABILITY_SITE_POS);
-    if ( PROBABILITY_SITE_NEUTRAL < 0.0 || PROBABILITY_SITE_BGS < 0.0 || PROBABILITY_SITE_POS < 0.0 || PROBABILITY_SITE_DIV < 0.0 ) {
-        fprintf(stderr, "\nError in readInParametersFromFile():\n\t");
-        fprintf(stderr, "One or more PROBABILITY_SITE_... variables out of bounds\n\t");
-        fprintf(stderr, "Please fix parameters.ini.txt\n");
-        fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
-        exit(-1);
-    }
-    
-    if ( !demographySet ) {
-        INITIAL_N = 0;
-        nDEMOGRAPHIC_CHANGES = 0;
-        DEMOGRAPHIC_CHANGE_TIMES = (long int *) malloc( sizeof(long int) );
-        *DEMOGRAPHIC_CHANGE_TIMES = 0;
-        K_VALUES = (double *) malloc( nPOPULATIONS * sizeof(double) );
-        for ( i = 0; i < nPOPULATIONS; i++ ) {
-            K_VALUES[i] = K_DEFAULT;
-            INITIAL_N += K_DEFAULT;
-        }
-        if ( VERBOSE )
-            printf("\nINITIAL_N = %li\n", INITIAL_N);
-    }
-    if ( !migrationSet ) {
-        nMIGRATION_CHANGES = 0;
-        MIGRATION_CHANGE_TIMES = (long int *) malloc( sizeof( long int ) );
-        *MIGRATION_CHANGE_TIMES = 0;
-        M_VALUES = (double *) malloc( nPOPULATIONS * nPOPULATIONS * sizeof(double) );
-        k = 0;
-        for ( i = 0; i < nPOPULATIONS; i++ ) {
-            for ( j = 0; j < nPOPULATIONS; j++ ) {
-                if ( i == j )
-                    M_VALUES[k] = 0.0;
-                else
-                    M_VALUES[k] = MIGRATION_RATE_DEFAULT;
-                k++;
-            }
-        }
-    }
-    KvalPt = K_VALUES;
-    migRatePt = M_VALUES;
-    
-    
-    /* printf("\nWarning: not done writing readInParametersFromFile().\nNeed to write code for cases when paramters are left out.\nAnd probably other stuff too.\n\n"); */
-    
-    //exit(0);
-    N = INITIAL_N;
-    GENOME_MU = MU * ((double) PLOIDY) * ((double) nSITES);
-    
-    return RNG_SEED;
-}
-
 
 
 void reproduction(void)
@@ -1548,7 +1099,9 @@ void reproduction(void)
     }
 
     // figure out how many mutations and which sites, including possibility for repeat and back mutation
+	// potential optimization with lookup table??
     nNewMutations = gsl_ran_poisson( rngState, (GENOME_MU * ((double) totalOffspring)) );
+	
     unsigned long long int mutatedLoci[nNewMutations];
     gsl_ran_choose( rngState, mutatedLoci, nNewMutations, siteIndexes, nSITES, sizeof(unsigned long long int) );
     maxSitesInOffspring = nTrackedSitesInParents + nNewMutations;
@@ -1591,16 +1144,16 @@ void reproduction(void)
     
     
     
-    for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
-        noff = noffspring[pop];
-        nhere = abundances[pop];
+    for ( pop = 0; pop < nPOPULATIONS; pop++ ) { // one population at a time
+        noff = noffspring[pop]; // total number of offspring to be born in this population
+        nhere = abundances[pop]; // number of potential parents here
         if ( noff > 0 ) {
             for ( i = 0; i < noff; i++ ) {
                 if ( INCLUDE_SELECTION )
                     chooseParents(&mommy, &daddy, dpt, nhere);
                 else
                     chooseParentsAtRandom(&mommy, &daddy, randomNumberLine, nhere);
-                momIndex = *(lipt + mommy);
+                momIndex = *(lipt + mommy); // actual index of mom (again, since there is no sort)
                 dadIndex = *(lipt + daddy);
                 makeOneOffspring(momIndex, dadIndex, sipt, nSitesInOffspring, offsp_SiteIndexes, offsp_lociStates);
                 *locpt = pop;
@@ -1622,29 +1175,37 @@ void reproduction(void)
         currentBlock = 0;
     else
         currentBlock = 1;
+	// update abundances:
     for ( i = 0; i < nPOPULATIONS; i++ ) {
         abundances[i] = noffspring[i];
     }
+	// update total across all demes:
     N = totalOffspring;
-    
+	
+	// time to see what's happening at each tracked site:
     ullipt = offsp_SiteIndexes;
+	// inactive by default (note that this covers ALL sites):
     memset( sitesStatuses, LOCUS_STATUS_INACTIVE, nSITES * sizeof(short int) );
     nSelectedSites = 0;
     for ( i = 0; i < nSitesInOffspring; i++ ) {
-        locus = *ullipt;
-        *(sitesStatuses + locus) = LOCUS_STATUS_TRACKED_IN_PARENTS;
-        if ( *(siteClassifications + locus) > SITE_CLASS_NEUTRAL )
+        locus = *ullipt; // site/locus index
+		// offspring are now the parents for the next generation:
+		*(sitesStatuses + locus) = LOCUS_STATUS_TRACKED_IN_PARENTS;
+        if ( *(siteClassifications + locus) != SITE_CLASS_NEUTRAL )
             nSelectedSites++;
         ullipt++;
     }
-    
+	
+	// now account for chance loss and actuall variable sites
     ullipt = alleleCounts;
     sipt = sitesStatuses;
     driftLosses = 0;
     actuallyVariable = 0;
+	// we will look over ALL sites:
     for ( locus = 0; locus < nSITES; locus++ ) {
         if ( *ullipt > 0 && *ullipt < ( PLOIDY * N ) ) {
-            *sipt = LOCUS_STATUS_VARIABLE_IN_PARENTS;
+			// there are between 1 and 2N-1 copies --> must be variable:
+			*sipt = LOCUS_STATUS_VARIABLE_IN_PARENTS;
             actuallyVariable++;
         }
         else if ( *ullipt == (PLOIDY * N) ) {
@@ -1664,9 +1225,10 @@ void reproduction(void)
         fprintf(stderr, "\nError in reproduction():\n\t(driftLosses (%li) + actuallyVariable (%li)) + nDerivedFixations (%i) != nSitesInOffspring (%li) )\n", driftLosses, actuallyVariable, nDerivedFixations, nSitesInOffspring);
         exit(-1);
     }
-    
+	
+	// offspring become parents:
     nTrackedSitesInParents = nSitesInOffspring;
-    
+	
     free(locations);
     locations = offspringLocations;
     
@@ -1688,9 +1250,10 @@ void usage(char *progname)
 {
     fprintf(stdout, "\n%s:\n\tOptions:\n", progname);
     
-    fprintf(stdout, "\nNote that limited options are available here on the command line.\nFor extensive flexible settings, put settings in parameters.ini.txt.\nOptions available on command line are as follows:\n");
+    fprintf(stdout, "\nNote that very limited options are available here on the command line.\nFor extensive flexible settings, put settings in parameters.ini.txt.\nOptions available on command line are as follows:\n");
     
-    fprintf(stdout, "\n\t-V\tVerbose: print lots of human readable messages to\n\t\tstdout related to run status.\n");
+    fprintf(stdout, "\n\t-V\tVERBOSE: print lots of human readable messages to\n\t\tstdout related to run status.\n");
+	fprintf(stdout, "\n\t-T\tTEST_MODE: run extra checks and unit tests\n");
 }
 
 

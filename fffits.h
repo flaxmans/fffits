@@ -6,6 +6,7 @@
 
 
 /*  ************* DEFAULTS FOR GLOBALS ***************** */
+// NOTE: these are overridden by anything in parameters.ini.txt
 #define nSITES_DEFAULT 1000000 // imaginary length of DNA we are watching evolve
 #define nLINKAGE_GROUPS_DEFAULT 2 // # of independently assorting units
 #define nGENERATIONS_DEFAULT 10
@@ -31,12 +32,14 @@
 #define ALLELE_CODE_ANCESTRAL 0
 #define ALLELE_CODE_DERIVED 1
 #define PLOIDY 2 // diploid
-#define ENVT_TYPE_GRADIENT 0
+#define ENVT_TYPE_GRADIENT 0 // this is default in fffits.c
 #define ENVT_TYPE_MOSAIC 1
 #define ENVT_TYPE_INVARIANT 2
+#define ENVT_MAX_DEFAULT 1.0 // max environmental value -- like a crude "niche"
+#define ENVT_MIN_DEFAULT -1.0 // min environmental value
 #define CODOMINANCE 0.5 // codominant effects of alleles in diploid genotypes
 #define FITNESS_MODEL_ADDITIVE 0
-#define FITNESS_MODEL_MULTIPLICATIVE 1
+#define FITNESS_MODEL_MULTIPLICATIVE 1 // default in fffits.c
 #define LOCUS_STATUS_INACTIVE 0
 #define LOCUS_STATUS_VARIABLE_IN_PARENTS 1
 #define LOCUS_STATUS_VARIABLE_PLUS_MUT 2
@@ -56,6 +59,9 @@ void setUpInitialAlleleFrequencies(double *expectedFreq, unsigned long long int 
 void setUpPopulations(void);
 void usage(char *progname);
 void wrongParametersIniOption(char *expected, char *previous, char *found);
+// pop gen calculations:
+void calculatePopGenMetrics(void);
+double calculateFST( long int i, long int *alleleCountsByPopulation, long int totalAlleleCount, double globalFreq );
 
 
 /*  ************* GLOBAL VARIABLES ***************** */
@@ -76,10 +82,25 @@ extern double PROBABILITY_SITE_DIV, PROBABILITY_SITE_POS, PROBABILITY_SITE_BGS, 
 extern double MEAN_S_BGS, MEAN_S_DIV, MEAN_S_POS;
 extern int ENVIRONMENT_TYPE; // defaults for how selection works; magic numbers defined below
 extern double *environmentGradient, ENVT_MAX, ENVT_MIN;
+extern int nDEMOGRAPHIC_CHANGES;
+extern long int *DEMOGRAPHIC_CHANGE_TIMES;
+extern _Bool FIXED_POP_SIZE;
+extern double MAX_POP_GROWTH_RATE;
+extern int nMIGRATION_CHANGES;
+extern long int *MIGRATION_CHANGE_TIMES;
+extern double *M_VALUES;
+extern double RECOMBINATION_RATE_PER_KB;
+extern _Bool INCLUDE_SELECTION;
+extern int FITNESS_MODEL;
+extern long int TIME_SERIES_SAMPLE_FREQ;
+extern double *migRatePt, *KvalPt;
+extern double GENOME_MU;
+extern _Bool TEST_MODE;
+extern long int t;
 
 // global file pointers
 extern FILE *dataFile_alleleFreqTS;
-extern FILE *dataFile_alleleFreqTSbyPop;
+//extern FILE *dataFile_alleleFreqTSbyPop;
 extern FILE *dataFile_SFS_TS;
 extern FILE *dataFile_segSiteTS;
 extern FILE *dataFile_derivedFixationTS;

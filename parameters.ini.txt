@@ -1,7 +1,7 @@
 RNG_SEED 1
 
-# population parameters
-nGENERATIONS 10000
+# population and time duration parameters
+nGENERATIONS 100
 nPOPULATIONS 4
 
 nDEMOGRAPHIC_CHANGES 0
@@ -54,5 +54,5 @@ ENVT_MAX 1.0
 FITNESS_MODEL MULTIPLICATIVE
 
 # data collection
-TIME_SERIES_SAMPLE_FREQ 1000
+TIME_SERIES_SAMPLE_FREQ 10
 
