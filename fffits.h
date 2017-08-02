@@ -60,8 +60,12 @@ void setUpPopulations(void);
 void usage(char *progname);
 void wrongParametersIniOption(char *expected, char *previous, char *found);
 // pop gen calculations:
+void calculateAlleleCountsByPop(long int focalSite, long int *alleleCountsByPopulation);
+void calculateAlleleFreqsByPop(long int *alleleCountsByPopulation, double *alleleFreqsByPop);
 void calculatePopGenMetrics(void);
-double calculateFST( long int i, long int *alleleCountsByPopulation, long int totalAlleleCount, double globalFreq );
+void calculateFST( double *FSTarray, double *alleleFreqsByPop, double *globalFreqs );
+void dataRecording(void);
+void writeAbundances(void);
 
 
 /*  ************* GLOBAL VARIABLES ***************** */
@@ -100,10 +104,11 @@ extern long int t;
 
 // global file pointers
 extern FILE *dataFile_alleleFreqTS;
-//extern FILE *dataFile_alleleFreqTSbyPop;
 extern FILE *dataFile_SFS_TS;
 extern FILE *dataFile_segSiteTS;
 extern FILE *dataFile_derivedFixationTS;
+extern FILE *dataFile_abundances;
+extern FILE *dataFile_PiAndDXY;
 
 
 

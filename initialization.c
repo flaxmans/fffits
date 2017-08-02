@@ -454,7 +454,7 @@ unsigned readInParametersFromFile(void)
 
 void setUpDataFiles(void)
 {
-	int i;
+	int i, j;
 	
 	dataFile_alleleFreqTS = fopen("AlleleFreqTS.csv", "w");
 	fprintf(dataFile_alleleFreqTS, "Time,SiteIndex,LinkageGroup,DerivedAlleleCount,DerivedAlleleFreq,SelectionCoefficient,SiteClassCode");
@@ -476,6 +476,36 @@ void setUpDataFiles(void)
 	
 	dataFile_derivedFixationTS = fopen("DerivedFixationRecord.csv", "w");
 	fprintf(dataFile_derivedFixationTS, "Time,SiteIndex,SiteClassCode,SelectionCoefficient\n");
+	
+	dataFile_abundances = fopen("Abundances.csv", "w");
+	fprintf(dataFile_abundances, "Time");
+	for ( i = 0; i < nPOPULATIONS; i++ )
+		fprintf(dataFile_abundances, ",CountInPop%i", i);
+	fprintf(dataFile_abundances, "\n");
+	
+	dataFile_PiAndDXY = fopen("PiAndDXY.csv", "w");
+	fprintf(dataFile_PiAndDXY, "Time");
+	for ( i = 0; i < nPOPULATIONS; i++ )
+		fprintf(dataFile_PiAndDXY, ",TotalNEUTPiPop%i", i);
+	for ( i = 0; i < nPOPULATIONS; i++ )
+		fprintf(dataFile_PiAndDXY, ",TotalBGPiPop%i", i);
+	for ( i = 0; i < nPOPULATIONS; i++ )
+		fprintf(dataFile_PiAndDXY, ",TotalPOSPiPop%i", i);
+	for ( i = 0; i < nPOPULATIONS; i++ )
+		fprintf(dataFile_PiAndDXY, ",TotalDIVPiPop%i", i);
+	for ( i = 0; i < (nPOPULATIONS - 1); i++ )
+		for ( j = (i+1); j < nPOPULATIONS; j++ )
+			fprintf(dataFile_PiAndDXY, ",TotalNEUTDxyBetween%iand%i", i, j);
+	for ( i = 0; i < (nPOPULATIONS - 1); i++ )
+		for ( j = (i+1); j < nPOPULATIONS; j++ )
+			fprintf(dataFile_PiAndDXY, ",TotalBGDxyBetween%iand%i", i, j);
+	for ( i = 0; i < (nPOPULATIONS - 1); i++ )
+		for ( j = (i+1); j < nPOPULATIONS; j++ )
+			fprintf(dataFile_PiAndDXY, ",TotalPOSDxyBetween%iand%i", i, j);
+	for ( i = 0; i < (nPOPULATIONS - 1); i++ )
+		for ( j = (i+1); j < nPOPULATIONS; j++ )
+			fprintf(dataFile_PiAndDXY, ",TotalDIVDxyBetween%iand%i", i, j);
+
 }
 
 

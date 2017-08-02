@@ -62,7 +62,7 @@ int currentMigrationPeriod = 0;
 int currentDemographyPeriod = 0;
 double *migRatePt, *KvalPt;
 FILE *dataFile_alleleFreqTS, *dataFile_SFS_TS, *dataFile_segSiteTS; // *dataFile_alleleFreqTSbyPop,
-FILE *dataFile_derivedFixationTS;
+FILE *dataFile_derivedFixationTS, *dataFile_abundances, *dataFile_PiAndDXY;
 int *siteClassifications; // site classifications
 
 
@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
         }
         
         if ( (t % TIME_SERIES_SAMPLE_FREQ == 0) || (t == nGENERATIONS) )
-            calculatePopGenMetrics();
+            dataRecording();
     }
     
     finalTasks(RNG_SEED);
@@ -505,6 +505,8 @@ void finalTasks(unsigned RNG_SEED)
     fclose(dataFile_SFS_TS);
     fclose(dataFile_segSiteTS);
     fclose(dataFile_derivedFixationTS);
+	fclose(dataFile_PiAndDXY);
+	fclose(dataFile_abundances);
     
     free(genotypes0);
     free(genotypes1);
