@@ -1,74 +1,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "fffits.h"
 
 // "main" function that calls others here:
 void dataRecording(void)
 {
+	double alleleFreqsByPop[(nPOPULATIONS * nTrackedSitesInParents)], globalFreqs[nTrackedSitesInParents];
+	
 	writeAbundances();
-	calculatePopGenMetrics();
-}
-
-
-void calculateAlleleCountsByPop(long int focalSite, long int *alleleCountsByPopulation)
-{
-	// allele counts by population/deme/patch
-	int *locpt, pop, hap, j;
-	short int *sipt;
-	long int dumIndex;
 	
-	locpt = locations;
-	for ( j = 0; j < N; j++ ) {
-		sipt = gts + (PLOIDY * focalSite) + (PLOIDY * j * nTrackedSitesInParents);
-		pop = *locpt; // location of individual
-		dumIndex = (pop * nTrackedSitesInParents) + focalSite; // where in alleleCountsByPopulation to store
-		for ( hap = 0; hap < PLOIDY; hap++ ) {
-			if ( *sipt == ALLELE_CODE_DERIVED )
-				*(alleleCountsByPopulation + dumIndex) += 1;
-			sipt++;
-		}
-		// alleleCountsByPopulation array: sites in consecutive order ("rows")
-		// and populations across "columns"
-		
-		locpt++; // increment location pointer
-	}
-}
-
-
-void calculateAlleleFreqsByPop(long int *alleleCountsByPopulation, double *alleleFreqsByPop)
-{
-	long int locus, *lipt;
-	int pop;
-	double *dpt, popDoub, countDoub;
+	// fitness time series?
 	
-	dpt = alleleFreqsByPop; // pointer to frequency array
-	lipt = alleleCountsByPopulation; // pointer to count array
+	calcAlleleCountsFreqsFSTandSFS( alleleFreqsByPop, globalFreqs );
+	/* Note for Joint SFS: the raw data needed for that are in AlleleFreqTS,
+	 so it isn't calculated and printed; it would be a ton of data/files due to combinatorics (like LD) */
 	
-	// loop over populations, site by site:
-	for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
-		popDoub = 1.0 / ( 2.0 * ((double) abundances[pop]) );
-		for ( locus = 0; locus < nTrackedSitesInParents; locus++ ) {
-			countDoub = (double) *lipt;
-			*dpt = countDoub * popDoub; // allele frequency calculated
-			dpt++; // increment pointers
-			lipt++;
-		}
-	}
+	calculateAndPrintPi( alleleFreqsByPop, globalFreqs );
+	calculateAndPrintDXY( alleleFreqsByPop );
+	fprintf(dataFile_PiAndDXY, "\n");
 }
 
 
 
-// basic stats first: allele frequencies/counts, used for SFS and other stats:
-void calculatePopGenMetrics(void)
+void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreqs)
 {
 	long int i, j, alleleCountsByPopulation[(nPOPULATIONS * nTrackedSitesInParents)];
 	unsigned long long int SFScountsByPopulation[(nPOPULATIONS * 2 * N)], nDivSites = 0, nPosSites = 0;
 	unsigned long long int siteMasterIndex, nSegSites = 0, nNeutralSites = 0, nBGsites = 0, SFScounts[(PLOIDY * N)];
 	short int *sipt, siteClass;
 	long int nhere, count, dumIndex, globalCounts[nTrackedSitesInParents];
-	double oneOver2N, FSTarray[nTrackedSitesInParents], globalFreqs[nTrackedSitesInParents];
-	double abundanceDoubs[nPOPULATIONS], alleleFreqsByPop[(nPOPULATIONS * nTrackedSitesInParents)];
+	double oneOver2N, FSTarray[nTrackedSitesInParents];
+	double abundanceDoubs[nPOPULATIONS];
 	
 	oneOver2N = 1.0 / (((double) PLOIDY) * ((double) N));
 	memset( &alleleCountsByPopulation[0], 0, (sizeof(long int) * nPOPULATIONS * nTrackedSitesInParents) );
@@ -125,23 +89,6 @@ void calculatePopGenMetrics(void)
 	// calculate FST:
 	calculateFST( FSTarray, alleleFreqsByPop, globalFreqs );
 	
-	// print allele count data to file:
-	// pointers to big arrays:
-	unsigned long long int *ullipt = parentalTrackedSiteIndexes; // master site index
-	
-	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
-		siteMasterIndex = *ullipt;
-		if ( globalCounts[i] > 0 ) {
-			fprintf(dataFile_alleleFreqTS, "%li,%llu,%i,%li,%E,%E,%i", t, siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), globalCounts[i], globalFreqs[i], *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
-			for ( j = 0; j < nPOPULATIONS; j++ ) {
-				dumIndex = (j * nTrackedSitesInParents) + i;
-				fprintf(dataFile_alleleFreqTS, ",%li", ( *(alleleCountsByPopulation + dumIndex) ) );
-			}
-			fprintf(dataFile_alleleFreqTS, ",%E\n", FSTarray[i]);
-		}
-		ullipt++;
-	}
-	
 	// error checking:
 	if ( TEST_MODE ) {
 		// check allele counts
@@ -160,6 +107,25 @@ void calculatePopGenMetrics(void)
 		}
 	}
 	
+	
+	// print calculations to files:
+	// pointers to big arrays:
+	unsigned long long int *ullipt = parentalTrackedSiteIndexes; // master site index
+	
+	// print allele counts and FST:
+	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
+		siteMasterIndex = *ullipt;
+		if ( globalCounts[i] > 0 ) {
+			fprintf(dataFile_alleleFreqTS, "%li,%llu,%i,%li,%E,%E,%i", t, siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), globalCounts[i], globalFreqs[i], *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
+			for ( j = 0; j < nPOPULATIONS; j++ ) {
+				dumIndex = (j * nTrackedSitesInParents) + i;
+				fprintf(dataFile_alleleFreqTS, ",%li", ( *(alleleCountsByPopulation + dumIndex) ) );
+			}
+			fprintf(dataFile_alleleFreqTS, ",%E\n", FSTarray[i]);
+		}
+		ullipt++;
+	}
+	
 	// print segregating site counts
 	fprintf(dataFile_segSiteTS, "%li,%llu,%llu,%llu,%llu,%llu\n", t, nSegSites, nNeutralSites, nBGsites, nPosSites, nDivSites);
 	
@@ -169,15 +135,185 @@ void calculatePopGenMetrics(void)
 			fprintf(dataFile_SFS_TS, "%li,%li,%llu\n", t, i, *(SFScounts + i));
 		}
 	}
+}
+
+
+
+void calculateAlleleCountsByPop(long int focalSite, long int *alleleCountsByPopulation)
+{
+	// allele counts by population/deme/patch
+	int *locpt, pop, hap, j;
+	short int *sipt;
+	long int dumIndex;
 	
-	/* Note for Joint SFS: the raw data needed for that are in AlleleFreqTS */
+	locpt = locations;
+	for ( j = 0; j < N; j++ ) {
+		sipt = gts + (PLOIDY * focalSite) + (PLOIDY * j * nTrackedSitesInParents);
+		pop = *locpt; // location of individual
+		dumIndex = (pop * nTrackedSitesInParents) + focalSite; // where in alleleCountsByPopulation to store
+		for ( hap = 0; hap < PLOIDY; hap++ ) {
+			if ( *sipt == ALLELE_CODE_DERIVED )
+				*(alleleCountsByPopulation + dumIndex) += 1;
+			sipt++;
+		}
+		// alleleCountsByPopulation array: sites in consecutive order ("rows")
+		// and populations across "columns"
+		
+		locpt++; // increment location pointer
+	}
+}
+
+
+void calculateAlleleFreqsByPop(long int *alleleCountsByPopulation, double *alleleFreqsByPop)
+{
+	long int locus, *lipt;
+	int pop;
+	double *dpt, popDoub, countDoub;
 	
-	// calculate other common summary stats: dxy, Tajima's D
+	dpt = alleleFreqsByPop; // pointer to frequency array
+	lipt = alleleCountsByPopulation; // pointer to count array
 	
-	//calculateDXY();
-	//calculateTajimasD();
-	//calculateLD();
-	// sliding or non-overlapping windows?
+	// loop over populations, site by site:
+	for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
+		popDoub = 1.0 / ( 2.0 * ((double) abundances[pop]) );
+		for ( locus = 0; locus < nTrackedSitesInParents; locus++ ) {
+			countDoub = (double) *lipt;
+			*dpt = countDoub * popDoub; // allele frequency calculated
+			dpt++; // increment pointers
+			lipt++;
+		}
+	}
+}
+
+
+void calculateAndPrintPi(double *alleleFreqsByPop, double *globalFreqs)
+{
+	long int i, j;
+	double mySums[nSITE_CLASSES], mySum, p, *afbppt;
+	unsigned long long int *ullipt;
+	short int siteClass;
+	double piWithin[nSITE_CLASSES][nPOPULATIONS];
+	
+	// make sure we are at 0.0 since these are built as sums:
+	for ( i = 0; i < nSITE_CLASSES; i++ ) {
+		mySums[i] = 0.0;
+		for ( j = 0; j < nPOPULATIONS; j++ )
+			piWithin[i][j] = 0.0;
+	}
+	
+	// going to calculate global averages as sums which can
+	// then later be divided by kb or divided by number of segregating sites
+	
+	// global from overall frequencies, which could be called "between" heterozygosity
+	mySum = 0.0;
+	ullipt = parentalTrackedSiteIndexes; // pointer to master site indexes
+	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
+		
+		p = globalFreqs[i];
+		p = 2.0 * p * (1.0 - p);
+		mySum += p;
+		
+		// see fffits.h for site class codes
+		siteClass = *(siteClassifications + (*ullipt)); // site class; note this is an int
+		mySums[siteClass] += p;
+		
+		// now population specific
+		afbppt = alleleFreqsByPop + i;
+		for ( j = 0; j < nPOPULATIONS; j++ ) {
+			p = *afbppt; // frequency at this site in this population
+			piWithin[siteClass][j] += (2.0 * p * (1.0 - p));
+			
+			afbppt += nTrackedSitesInParents;
+		}
+		
+		ullipt++;
+	}
+	
+	// error checking:
+	if ( TEST_MODE ) {
+		double dumsum = 0.0, diff;
+		for ( i = 0; i < nSITE_CLASSES; i++ )
+			dumsum += mySums[i];
+		diff = fabs(dumsum - mySum);
+		if ( diff > 0.0001 )
+			fprintf(stderr, "\nWarning from calculateAndPrintPi():\n\tmySum = %E but global dumsum = %E\n", mySum, dumsum);
+	}
+	
+	// print pi data:
+	// order of prints: PiGlobalAllSites, PiGlobalNeutral, PiGlobalBG, PiGlobalPOS, PiGlobalDIV
+	fprintf(dataFile_PiAndDXY, "%li,%E", t, mySum);
+	for ( i = 0; i < nSITE_CLASSES; i++ )
+		fprintf(dataFile_PiAndDXY, ",%E", mySums[i]);
+	// continued prints: all populations, and within each, the summed pi for each site class in the same order as global pi values, but for each population
+	for ( j = 0; j < nPOPULATIONS; j++ )
+		for ( i = 0; i < nSITE_CLASSES; i++ )
+			fprintf(dataFile_PiAndDXY, ",%E", piWithin[i][j]);
+	// fprintf(dataFile_PiAndDXY, "\n"); // newline print is in dataRecording() since multiple functions write to this file
+}
+
+
+void calculateAndPrintDXY(double *alleleFreqsByPop)
+{
+	long int i, j, pop1, pop2;
+	double p1, p2, *afbppt1, *afbppt2;
+	unsigned long long int *ullipt;
+	short int siteClass;
+	int numCombos;
+	numCombos = (nPOPULATIONS * (nPOPULATIONS - 1)) / 2; // # of population pairs to compare
+	double dxySums[nSITE_CLASSES][numCombos];
+	
+	// make sure we are at 0.0 since these are built as sums:
+	for ( i = 0; i < nSITE_CLASSES; i++ ) {
+		for ( j = 0; j < numCombos; j++ )
+			dxySums[i][j] = 0.0;
+	}
+	
+	// going to calculate values as sums which can
+	// then later be divided by kb or divided by number of segregating sites
+	
+	// global from overall frequencies, which could be called "between" heterozygosity
+	ullipt = parentalTrackedSiteIndexes; // pointer to master site indexes
+	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
+		
+		siteClass = *(siteClassifications + (*ullipt)); // site class; note this is an int
+		
+		// now population specific
+		afbppt1 = alleleFreqsByPop + i;
+		// j will be a population combo counter
+		j = 0;
+		for ( pop1 = 0; pop1 < (nPOPULATIONS-1); pop1++ ) {
+			p1 = *afbppt1; // frequency at this site in this population 1
+			afbppt2 = afbppt1 + nTrackedSitesInParents; // pointer to pop2's frequency at this site
+			for ( pop2 = (pop1 + 1); pop2 < nPOPULATIONS; pop2++ ) {
+				p2 = *afbppt2;
+				// now calculate expected differences:
+				dxySums[siteClass][j] += (p1 * (1.0 - p2)) + ((1.0 - p1) * p2);
+				afbppt2++; // increment pop2's pointer
+				j++; // increment counter of which pair we are on
+			}
+			afbppt1 += nTrackedSitesInParents; // increment pop1's pointer
+		}
+		
+		ullipt++;
+	}
+	
+	// error checking:
+	if ( TEST_MODE ) {
+		if ( j != numCombos ) {
+			fprintf(stderr, "\nError from calculateAndPrintDXY():\n\tj = %li but numCombos = %i\n", j, numCombos);
+			exit(-1);
+		}
+	}
+	
+	// print DXY data:
+	// order of prints: cover each site class; see initialization.c for header order prints
+	for ( i = 0; i < nSITE_CLASSES; i++ ) {
+		for ( j = 0; j < numCombos; j++ ) {
+			fprintf(dataFile_PiAndDXY, ",%E", dxySums[i][j]);
+		}
+	}
+	
+	
 	
 }
 
@@ -237,6 +373,7 @@ void calculateFST( double *FSTarray, double *alleleFreqsByPop, double *globalFre
 		}
 	}
 }
+
 
 
 void writeAbundances(void)

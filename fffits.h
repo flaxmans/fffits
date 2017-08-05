@@ -60,9 +60,11 @@ void setUpPopulations(void);
 void usage(char *progname);
 void wrongParametersIniOption(char *expected, char *previous, char *found);
 // pop gen calculations:
+void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreqs);
+void calculateAndPrintPi(double *alleleFreqsByPop, double *globalFreqs);
+void calculateAndPrintDXY(double *alleleFreqsByPop);
 void calculateAlleleCountsByPop(long int focalSite, long int *alleleCountsByPopulation);
 void calculateAlleleFreqsByPop(long int *alleleCountsByPopulation, double *alleleFreqsByPop);
-void calculatePopGenMetrics(void);
 void calculateFST( double *FSTarray, double *alleleFreqsByPop, double *globalFreqs );
 void dataRecording(void);
 void writeAbundances(void);
@@ -75,7 +77,7 @@ extern const gsl_rng_type *rngType;		/* generator type */
 extern gsl_rng *rngState;				/* rng instance */
 extern int nPOPULATIONS, nLINKAGE_GROUPS;
 extern long int N, *abundances;						// population size in total
-extern unsigned long long int nSITES, blockSizes[2];	// number of sites in genome
+extern unsigned long long int nSITES, blockSizes[2];	// number of sites in genome, memory size for genome data
 extern double MU;						// per base mutation rate
 extern unsigned long long int nTrackedSitesInParents;
 extern short int *sitesStatuses, *genotypes0, *genotypes1, *gts, currentBlock;

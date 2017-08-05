@@ -485,14 +485,9 @@ void setUpDataFiles(void)
 	
 	dataFile_PiAndDXY = fopen("PiAndDXY.csv", "w");
 	fprintf(dataFile_PiAndDXY, "Time");
+	fprintf(dataFile_PiAndDXY, ",TotalGlobalPi,GlobalNEUTPi,GlobalBGPi,GlobalPOSPi,GlobalDIVPi");
 	for ( i = 0; i < nPOPULATIONS; i++ )
-		fprintf(dataFile_PiAndDXY, ",TotalNEUTPiPop%i", i);
-	for ( i = 0; i < nPOPULATIONS; i++ )
-		fprintf(dataFile_PiAndDXY, ",TotalBGPiPop%i", i);
-	for ( i = 0; i < nPOPULATIONS; i++ )
-		fprintf(dataFile_PiAndDXY, ",TotalPOSPiPop%i", i);
-	for ( i = 0; i < nPOPULATIONS; i++ )
-		fprintf(dataFile_PiAndDXY, ",TotalDIVPiPop%i", i);
+		fprintf(dataFile_PiAndDXY, ",NEUTPiPop%i,BGPiPop%i,POSPiPop%i,DIVPiPop%i", i, i, i, i);
 	for ( i = 0; i < (nPOPULATIONS - 1); i++ )
 		for ( j = (i+1); j < nPOPULATIONS; j++ )
 			fprintf(dataFile_PiAndDXY, ",TotalNEUTDxyBetween%iand%i", i, j);
@@ -505,6 +500,7 @@ void setUpDataFiles(void)
 	for ( i = 0; i < (nPOPULATIONS - 1); i++ )
 		for ( j = (i+1); j < nPOPULATIONS; j++ )
 			fprintf(dataFile_PiAndDXY, ",TotalDIVDxyBetween%iand%i", i, j);
+	fprintf(dataFile_PiAndDXY, "\n");
 
 }
 
