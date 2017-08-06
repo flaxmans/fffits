@@ -30,7 +30,7 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 	unsigned long long int SFScountsByPopulation[(nPOPULATIONS * 2 * N)], nDivSites = 0, nPosSites = 0;
 	unsigned long long int siteMasterIndex, nSegSites = 0, nNeutralSites = 0, nBGsites = 0, SFScounts[(PLOIDY * N)];
 	short int *sipt, siteClass;
-	long int nhere, count, dumIndex, globalCounts[nTrackedSitesInParents];
+	long int nhere, count, dumIndex, globalCounts[nTrackedSitesInParents], twoN = 2 * N;
 	double oneOver2N, FSTarray[nTrackedSitesInParents];
 	double abundanceDoubs[nPOPULATIONS];
 	
@@ -47,7 +47,15 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 		
 		// overall counts and frequencies
 		siteMasterIndex = *(parentalTrackedSiteIndexes + i);
+		count = *(alleleCounts + siteMasterIndex);
+		// storage in arrays for later calcs:
+		globalCounts[i] = count;
+		globalFreqs[i] = (((double) count) * oneOver2N);
+		// counts by population:
+		calculateAlleleCountsByPop(i, alleleCountsByPopulation);
+		
 		if ( *(sitesStatuses + siteMasterIndex) == LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
+		
 			// site types
 			nSegSites++;
 			siteClass = *(siteClassifications + siteMasterIndex);
@@ -65,21 +73,14 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 			}
 			
 			// global allele frequencies
-			count = *(alleleCounts + siteMasterIndex);
-			if ( TEST_MODE ) {
-				if ( count <= 0 ) {
-					fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tcount (%li) <= 0 for siteMasterIndex = %llu\n", count, siteMasterIndex);
-					exit(-1);
-				}
+#ifdef DEBUG
+			if ( count < 0 ) {
+				fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tcount (%li) < 0 for siteMasterIndex = %llu, siteStatus = %i\n", count, siteMasterIndex, *(sitesStatuses + siteMasterIndex));
+				exit(-1);
 			}
-			// storage in arrays for later calcs:
-			globalCounts[i] = count;
-			globalFreqs[i] = (((double) count) * oneOver2N);
-			// counts by population:
-			calculateAlleleCountsByPop(i, alleleCountsByPopulation);
+#endif
 			// site frequency spectrum:
 			*(SFScounts + count) += 1;
-			
 		}
 	}
 	
@@ -88,24 +89,29 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 	
 	// calculate FST:
 	calculateFST( FSTarray, alleleFreqsByPop, globalFreqs );
-	
+
+#ifdef DEBUG
 	// error checking:
-	if ( TEST_MODE ) {
-		// check allele counts
-		long int alleleSums[nTrackedSitesInParents];
-		
-		for ( i = 0; i < nTrackedSitesInParents; i++ ) {
-			count = 0;
+	// check allele counts
+	long int alleleSums[nTrackedSitesInParents];
+	
+	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
+		count = 0;
+		for ( j = 0; j < nPOPULATIONS; j++ ) {
+			count += *(alleleCountsByPopulation + (nTrackedSitesInParents * j) + i);
+		}
+		siteMasterIndex = *(parentalTrackedSiteIndexes + i);
+		if ( count != ( *(alleleCounts + siteMasterIndex) ) ) {
+			fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tsum count (%li) by popn != value from alleleCounts (%llu); globalFreqs[i] = %E\n", count, *(alleleCounts + siteMasterIndex), globalFreqs[i]);
+			fprintf(stderr, "\n\tN = %li, t = %li, i = %li, j = %li, siteMasterIndex = %llu\n", N, t, i, j, siteMasterIndex);
+			fprintf(stderr, "\n\tsiteStatus = %i, nTrackedSitesInParents = %llu\n", *(sitesStatuses + siteMasterIndex), nTrackedSitesInParents);
 			for ( j = 0; j < nPOPULATIONS; j++ ) {
-				count += *(alleleCountsByPopulation + (nTrackedSitesInParents * j) + i);
+				fprintf(stderr, "\tpop%li count = %li\n", j, *(alleleCountsByPopulation + (nTrackedSitesInParents * j) + i) );
 			}
-			siteMasterIndex = *(parentalTrackedSiteIndexes + i);
-			if ( count != ( *(alleleCounts + siteMasterIndex) ) ) {
-				fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tsum count (%li) by popn != value from alleleCounts (%llu)\n", count, *(alleleCounts + siteMasterIndex));
-				exit(-1);
-			}
+			exit(-1);
 		}
 	}
+#endif
 	
 	
 	// print calculations to files:
@@ -115,7 +121,7 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 	// print allele counts and FST:
 	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
 		siteMasterIndex = *ullipt;
-		if ( globalCounts[i] > 0 ) {
+		if ( globalCounts[i] > 0 && globalCounts[i] < twoN ) {
 			fprintf(dataFile_alleleFreqTS, "%li,%llu,%i,%li,%E,%E,%i", t, siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), globalCounts[i], globalFreqs[i], *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
 			for ( j = 0; j < nPOPULATIONS; j++ ) {
 				dumIndex = (j * nTrackedSitesInParents) + i;
@@ -131,7 +137,7 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 	
 	// print the SFS
 	for ( i = 1; i < (PLOIDY * N); i++ ) {
-		if ( *(SFScounts + i) ) {
+		if ( *(SFScounts + i) > 0 && *(SFScounts + i) < twoN ) {
 			fprintf(dataFile_SFS_TS, "%li,%li,%llu\n", t, i, *(SFScounts + i));
 		}
 	}
@@ -228,16 +234,16 @@ void calculateAndPrintPi(double *alleleFreqsByPop, double *globalFreqs)
 		
 		ullipt++;
 	}
-	
+
+#ifdef DEBUG
 	// error checking:
-	if ( TEST_MODE ) {
-		double dumsum = 0.0, diff;
-		for ( i = 0; i < nSITE_CLASSES; i++ )
-			dumsum += mySums[i];
-		diff = fabs(dumsum - mySum);
-		if ( diff > 0.0001 )
-			fprintf(stderr, "\nWarning from calculateAndPrintPi():\n\tmySum = %E but global dumsum = %E\n", mySum, dumsum);
-	}
+	double dumsum = 0.0, diff;
+	for ( i = 0; i < nSITE_CLASSES; i++ )
+		dumsum += mySums[i];
+	diff = fabs(dumsum - mySum);
+	if ( diff > 0.0001 )
+		fprintf(stderr, "\nWarning from calculateAndPrintPi():\n\tmySum = %E but global dumsum = %E\n", mySum, dumsum);
+#endif
 	
 	// print pi data:
 	// order of prints: PiGlobalAllSites, PiGlobalNeutral, PiGlobalBG, PiGlobalPOS, PiGlobalDIV
@@ -297,13 +303,13 @@ void calculateAndPrintDXY(double *alleleFreqsByPop)
 		ullipt++;
 	}
 	
+#ifdef DEBUG
 	// error checking:
-	if ( TEST_MODE ) {
-		if ( j != numCombos ) {
-			fprintf(stderr, "\nError from calculateAndPrintDXY():\n\tj = %li but numCombos = %i\n", j, numCombos);
-			exit(-1);
-		}
+	if ( j != numCombos ) {
+		fprintf(stderr, "\nError from calculateAndPrintDXY():\n\tj = %li but numCombos = %i\n", j, numCombos);
+		exit(-1);
 	}
+#endif
 	
 	// print DXY data:
 	// order of prints: cover each site class; see initialization.c for header order prints
@@ -341,35 +347,38 @@ void calculateFST( double *FSTarray, double *alleleFreqsByPop, double *globalFre
 	
 	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
 		globalFreq = *(globalFreqs + i);
-		HT = 2.0 * (1.0 - globalFreq) * globalFreq; // total expected heterozygosity
-		HS = 0.0; // within heterozygosity; will be built as a sum
-		
-		afbppt = alleleFreqsByPop + i; // pointer to allele count in first populations at focal site
-		for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
-			localFreq = *afbppt; // local "p"
-			localHet = 2.0 * localFreq * (1.0 - localFreq);
-			HS += localHet * weights[pop]; // contribution of deme weighted by population size
-			afbppt += nTrackedSitesInParents; // advance pointer
+		if ( globalFreq <= 0.0 || globalFreq >= 1.0 )
+			FSTarray[i] = NAN;
+		else {
+			HT = 2.0 * (1.0 - globalFreq) * globalFreq; // total expected heterozygosity
+			HS = 0.0; // within heterozygosity; will be built as a sum
 			
-			// error checking:
-			if ( TEST_MODE ) {
+			afbppt = alleleFreqsByPop + i; // pointer to allele count in first populations at focal site
+			for ( pop = 0; pop < nPOPULATIONS; pop++ ) {
+				localFreq = *afbppt; // local "p"
+				localHet = 2.0 * localFreq * (1.0 - localFreq);
+				HS += localHet * weights[pop]; // contribution of deme weighted by population size
+				afbppt += nTrackedSitesInParents; // advance pointer
+				
+#ifdef DEBUG
+				// error checking:
 				if ( localFreq < 0.0 || localFreq > 1.0 || localHet < 0.0 || localHet > 0.5 ) {
 					fprintf(stderr, "\nError in calculateFST(): Values off\n\tlocalFreq = %f, localHet = %f\n", localFreq, localHet);
 					exit(-1);
 				}
+#endif
+				
 			}
 			
-		}
-		
-		FSTarray[i] = (HT - HS) / HT;
-		
-		// error checking:
-		if ( TEST_MODE ) {
+			FSTarray[i] = (HT - HS) / HT;
+			
+#ifdef DEBUG
+			// error checking:
 			if ( FSTarray[i] < 0.0 || FSTarray[i] > 1.0 || HT < 0.0 || HT > 0.5 || HS > HT || HS < 0.0 || HS > 0.5 ) {
 				fprintf(stderr, "\nError in calculateFST(): Values off\n\tFSTthisLocus = %f, HT = %f, HS = %f\n", FSTarray[i], HT, HS);
 				exit(-1);
 			}
-			
+#endif
 		}
 	}
 }
@@ -380,9 +389,20 @@ void writeAbundances(void)
 {
 	int i;
 	
-	fprintf(dataFile_abundances, "%li", t);
+	fprintf(dataFile_abundances, "%li,%li", t, N);
 	for ( i = 0; i < nPOPULATIONS; i++ ) {
 		fprintf(dataFile_abundances, ",%li", abundances[i]);
 	}
 	fprintf(dataFile_abundances, "\n");
+	
+#ifdef DEBUG
+	long int totalCount = 0;
+	for ( i = 0; i < nPOPULATIONS; i++ )
+		totalCount += abundances[i];
+	if ( N != totalCount ) {
+		fprintf(stderr, "\nError from writeAbundances():\n\t N (%li) != totalCount (%li)\n", N, totalCount);
+		exit(-1);
+	}
+#endif
+	
 }

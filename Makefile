@@ -1,7 +1,7 @@
 #
 TARGET=fffits
 CC=gcc
-CFLAGS=-g
+CFLAGS=-g -DDEBUG
 GSLFLAGS=-I/usr/local/include/gsl
 LIBFLAGS=-lm -lgsl -lgslcblas -L/usr/local/lib
 

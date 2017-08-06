@@ -21,11 +21,8 @@ int initializationSteps( int argc, char *argv[], char *progname )
 	unsigned int RNG_SEED;
 	int ch;
 	
-	while ((ch = getopt(argc, argv, "TV?")) != -1) {
+	while ((ch = getopt(argc, argv, "V?")) != -1) {
 		switch (ch) {
-			case 'T':
-				TEST_MODE = 1;
-				break;
 //			case 't':
 //				nGENERATIONS = atoi(optarg);
 //				break;
@@ -478,9 +475,9 @@ void setUpDataFiles(void)
 	fprintf(dataFile_derivedFixationTS, "Time,SiteIndex,SiteClassCode,SelectionCoefficient\n");
 	
 	dataFile_abundances = fopen("Abundances.csv", "w");
-	fprintf(dataFile_abundances, "Time");
+	fprintf(dataFile_abundances, "Time,Ntotal");
 	for ( i = 0; i < nPOPULATIONS; i++ )
-		fprintf(dataFile_abundances, ",CountInPop%i", i);
+		fprintf(dataFile_abundances, ",AbundancePop%i", i);
 	fprintf(dataFile_abundances, "\n");
 	
 	dataFile_PiAndDXY = fopen("PiAndDXY.csv", "w");

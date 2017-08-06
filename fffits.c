@@ -42,7 +42,6 @@ double ENVT_MAX = ENVT_MAX_DEFAULT;
 double ENVT_MIN = ENVT_MIN_DEFAULT;
 int FITNESS_MODEL = FITNESS_MODEL_MULTIPLICATIVE; // defaults for how selection works; see defines in fffits.h
 long int TIME_SERIES_SAMPLE_FREQ = TIME_SERIES_SAMPLE_FREQ_DEFAULT;
-_Bool TEST_MODE = 0;
 _Bool VERBOSE = 0;
 
 long int nSelectedSites;
@@ -619,16 +618,16 @@ void makeDemesIndexes(long int *individualsInDeme)
         
         ipt++;
     }
-    
-    if ( TEST_MODE ) {
-        FILE *testMakeIndexes;
-        testMakeIndexes = fopen("TestMakeDemesIndexes.txt","w");
-        for ( i = 0; i < N; i++ ) {
-            j = individualsInDeme[i];
-            fprintf(testMakeIndexes, "%li,%i\n", j, locations[j]);
-        }
-        fclose(testMakeIndexes);
-    }
+
+#ifdef DEBUG
+	FILE *testMakeIndexes;
+	testMakeIndexes = fopen("TestMakeDemesIndexes.txt","w");
+	for ( i = 0; i < N; i++ ) {
+		j = individualsInDeme[i];
+		fprintf(testMakeIndexes, "%li,%i\n", j, locations[j]);
+	}
+	fclose(testMakeIndexes);
+#endif
 }
 
 
@@ -1255,7 +1254,6 @@ void usage(char *progname)
     fprintf(stdout, "\nNote that very limited options are available here on the command line.\nFor extensive flexible settings, put settings in parameters.ini.txt.\nOptions available on command line are as follows:\n");
     
     fprintf(stdout, "\n\t-V\tVERBOSE: print lots of human readable messages to\n\t\tstdout related to run status.\n");
-	fprintf(stdout, "\n\t-T\tTEST_MODE: run extra checks and unit tests\n");
 }
 
 

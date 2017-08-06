@@ -101,7 +101,6 @@ extern int FITNESS_MODEL;
 extern long int TIME_SERIES_SAMPLE_FREQ;
 extern double *migRatePt, *KvalPt;
 extern double GENOME_MU;
-extern _Bool TEST_MODE;
 extern long int t;
 
 // global file pointers
