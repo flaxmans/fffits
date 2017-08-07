@@ -55,7 +55,7 @@ double randExp(double meanValue);
 unsigned readInParametersFromFile(void);
 void setUpDataFiles(void);
 void setUpGenome(void);
-void setUpInitialAlleleFrequencies(double *expectedFreq, unsigned long long int *SFScounts);
+void setUpInitialAlleleFrequencies(double *expectedFreq, unsigned long int *SFScounts);
 void setUpPopulations(void);
 void usage(char *progname);
 void wrongParametersIniOption(char *expected, char *previous, char *found);
@@ -68,6 +68,8 @@ void calculateAlleleFreqsByPop(long int *alleleCountsByPopulation, double *allel
 void calculateFST( double *FSTarray, double *alleleFreqsByPop, double *globalFreqs );
 void dataRecording(void);
 void writeAbundances(void);
+// others used across multiple src files:
+void chooseMutationSites( unsigned long int *mutatedLoci, long int nNewMutations );
 
 
 /*  ************* GLOBAL VARIABLES ***************** */
@@ -77,13 +79,13 @@ extern const gsl_rng_type *rngType;		/* generator type */
 extern gsl_rng *rngState;				/* rng instance */
 extern int nPOPULATIONS, nLINKAGE_GROUPS;
 extern long int N, *abundances;						// population size in total
-extern unsigned long long int nSITES, blockSizes[2];	// number of sites in genome, memory size for genome data
+extern unsigned long int nSITES, blockSizes[2];	// number of sites in genome, memory size for genome data
 extern double MU;						// per base mutation rate
-extern unsigned long long int nTrackedSitesInParents;
+extern unsigned long int nTrackedSitesInParents;
 extern short int *sitesStatuses, *genotypes0, *genotypes1, *gts, currentBlock;
 extern int *siteClassifications, *linkageGroupMembership, *locations;
 extern double *alleleFrequencies, *K_VALUES, *selectionCoefficients;
-extern unsigned long long int *parentalTrackedSiteIndexes, *siteIndexes, *alleleCounts; // pointers for memory blocks for sites in genome
+extern unsigned long int *parentalTrackedSiteIndexes, *alleleCounts; // pointers for memory blocks for sites in genome
 extern double PROBABILITY_SITE_DIV, PROBABILITY_SITE_POS, PROBABILITY_SITE_BGS, PROBABILITY_SITE_NEUTRAL;
 extern double MEAN_S_BGS, MEAN_S_DIV, MEAN_S_POS;
 extern int ENVIRONMENT_TYPE; // defaults for how selection works; magic numbers defined below

@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <string.h>
 #include <string.h>
+#include <limits.h>
 #include "fffits.h"
 
 #include <gsl_rng.h>            // gnu scientific library //
@@ -37,6 +38,12 @@ int initializationSteps( int argc, char *argv[], char *progname )
 	}
 	
 	RNG_SEED = readInParametersFromFile();
+
+	// data type sizes allowed:
+	if ( VERBOSE ) {
+		fprintf(stdout, "\nULONG_MAX on this system = %lu\n", ULONG_MAX);
+		fprintf(stdout, "\t--> nSITES must be <= %lu\n", ULONG_MAX);
+	}
 	
 	// initialization steps
 	initializeRNG(RNG_SEED);
@@ -68,7 +75,7 @@ unsigned readInParametersFromFile(void)
 {
 	char c, option[80], option2[80];
 	long int INITIAL_N;
-	unsigned long long int foo;
+	unsigned long int foo;
 	int i, j, k, dumi, temp;
 	unsigned RNG_SEED = 1;
 	double value;
@@ -273,16 +280,16 @@ unsigned readInParametersFromFile(void)
 			
 		}
 		else if ( !strcmp( option, "nSITES"  ) ) { // total number of sites in genome
-			fscanf(pfile, "%llu", &nSITES);
+			fscanf(pfile, "%lu", &nSITES);
 			if ( nSITES < 1 ) {
-				fprintf(stderr, "\nError in readInParametersFromFile():\n\tnSITES (= %llu) should be > 1\n", nSITES);
+				fprintf(stderr, "\nError in readInParametersFromFile():\n\tnSITES (= %lu) should be > 1\n", nSITES);
 				fprintf(stderr, "Please fix parameters.ini.txt\n");
 				fprintf(stderr, "\n\t\t*** Exiting *** \n\n");
 				exit(-1);
 			}
 			// test check
 			if ( VERBOSE )
-				printf("Found nSITES (%s) = %llu\n", option, nSITES);
+				printf("Found nSITES (%s) = %lu\n", option, nSITES);
 		}
 		else if ( !strcmp( option, "nLINKAGE_GROUPS"  ) ) { // total number of sites in genome
 			fscanf(pfile, "%i", &nLINKAGE_GROUPS);
@@ -505,7 +512,7 @@ void setUpDataFiles(void)
 void setUpGenome(void)
 {
 	double theta, expectedSegSites, *expectedFreq, *dpt, value;
-	unsigned long long int foo, *ullpt, sitesPerLinkageGroup, lgCount, SFScounts[(PLOIDY * N)];
+	unsigned long int foo, *ullpt, sitesPerLinkageGroup, lgCount, SFScounts[(PLOIDY * N)];
 	long int i;
 	int dumi, currentLinkageGroup;
 	char str[80];
@@ -532,20 +539,21 @@ void setUpGenome(void)
 		dpt++;
 	}
 	expectedSegSites = expectedSegSites * theta;
-	nTrackedSitesInParents = (unsigned long long int) (expectedSegSites + 0.5);
+	nTrackedSitesInParents = (unsigned long int) (expectedSegSites + 0.5);
 	
 	
 	// now to choose the sites that are variable and their frequencies
-	siteIndexes = (unsigned long long int *) malloc( nSITES * sizeof(unsigned long long int) );
-	parentalTrackedSiteIndexes = (unsigned long long int *) malloc( nTrackedSitesInParents * sizeof(unsigned long long int) );
-	ullpt = siteIndexes;
-	for ( foo = 0; foo < nSITES; foo++ ) {
-		*ullpt = foo;
-		ullpt++;
-	}
+	// siteIndexes = (unsigned long int *) malloc( nSITES * sizeof(unsigned long int) );
+	parentalTrackedSiteIndexes = (unsigned long int *) malloc( nTrackedSitesInParents * sizeof(unsigned long int) );
+//	ullpt = siteIndexes;
+//	for ( foo = 0; foo < nSITES; foo++ ) {
+//		*ullpt = foo;
+//		ullpt++;
+//	}
 	
 	// use gsl ran choose to pick sites at random to be standing neutral variation
-	gsl_ran_choose( rngState, parentalTrackedSiteIndexes, nTrackedSitesInParents, siteIndexes, nSITES, sizeof(unsigned long long int) );
+	// gsl_ran_choose( rngState, parentalTrackedSiteIndexes, nTrackedSitesInParents, siteIndexes, nSITES, sizeof(unsigned long int) );
+	chooseMutationSites( parentalTrackedSiteIndexes, nTrackedSitesInParents );
 	// variable site indexes now stores the ordered indexes of sites that should have segregating variants
 	// siteIndexes just stores the indexes [0..nSITES-1], which is useful for random choices like this one, so we keep it
 	sitesStatuses = (short int *) malloc( nSITES * sizeof(short int) );
@@ -558,8 +566,8 @@ void setUpGenome(void)
 	
 	// now randomly assign frequencies
 	alleleFrequencies = (double *) malloc( nSITES * sizeof(double)); // frequencies (0 to 1) by site
-	alleleCounts = (unsigned long long int *) malloc( nSITES * sizeof(unsigned long long int));
-	memset( alleleCounts, 0, nSITES * sizeof(unsigned long long int) );
+	alleleCounts = (unsigned long int *) malloc( nSITES * sizeof(unsigned long int));
+	memset( alleleCounts, 0, nSITES * sizeof(unsigned long int) );
 	for ( foo = 0; foo < (PLOIDY * N); foo++ )
 		*(SFScounts + foo) = 0;
 	setUpInitialAlleleFrequencies(expectedFreq, SFScounts);
@@ -568,13 +576,13 @@ void setUpGenome(void)
 	
 	
 	if ( VERBOSE )
-		printf("\ntheta = %f, segSites = %llu\n", theta, nTrackedSitesInParents);
+		printf("\ntheta = %f, segSites = %lu\n", theta, nTrackedSitesInParents);
 	
 	
 	// assign site types
 	double siteProbs[nSITE_CLASSES];
-	unsigned long long int siteTypeCounts[nSITE_CLASSES];
-	memset( siteTypeCounts, 0, (nSITE_CLASSES * sizeof(unsigned long long int)) );
+	unsigned long int siteTypeCounts[nSITE_CLASSES];
+	memset( siteTypeCounts, 0, (nSITE_CLASSES * sizeof(unsigned long int)) );
 	selectionCoefficients = (double *) malloc( nSITES * sizeof(double) );
 	memset( selectionCoefficients, 0, (nSITES * sizeof(double)) );
 	siteProbs[0] = PROBABILITY_SITE_NEUTRAL;
@@ -628,13 +636,13 @@ void setUpGenome(void)
 		printf("\nSite type counts:\n");
 	for ( i = 0; i < nSITE_CLASSES; i++ ) {
 		if ( VERBOSE )
-			printf("\t%llu", siteTypeCounts[i]);
+			printf("\t%lu", siteTypeCounts[i]);
 		foo += siteTypeCounts[i];
 	}
 	if ( VERBOSE )
 		printf("\n");
 	if ( foo != nSITES ) {
-		fprintf(stderr, "\nError in setUpGenome():\n\tsite total (%llu) != nSITES (%llu)\n\t*** Exiting ***\n\n", foo, nSITES);
+		fprintf(stderr, "\nError in setUpGenome():\n\tsite total (%lu) != nSITES (%lu)\n\t*** Exiting ***\n\n", foo, nSITES);
 		exit(-1);
 	}
 	
@@ -665,13 +673,13 @@ void setUpGenome(void)
 		for ( foo = 0; foo < nSITES; foo++ ) {
 			if ( *(siteClassifications + foo) == dumi ) {
 				if ( firstOne ) { // so no trailing comma or space on end
-					fprintf( siteDesignations, "%llu", foo );
-					fprintf( sd2, "%llu", foo );
+					fprintf( siteDesignations, "%lu", foo );
+					fprintf( sd2, "%lu", foo );
 					firstOne = 0;
 				}
 				else {
-					fprintf( siteDesignations, ",%llu", foo );
-					fprintf( sd2, " %llu", foo );
+					fprintf( siteDesignations, ",%lu", foo );
+					fprintf( sd2, " %lu", foo );
 				}
 			}
 		}
@@ -683,7 +691,7 @@ void setUpGenome(void)
 	
 	nSelectedSites = 0;
 	FILE *initialFreqs;
-	unsigned long long int focalSiteIndex;
+	unsigned long int focalSiteIndex;
 	int SiteClassCode;
 	initialFreqs = fopen("InitialAlleleFreqs.csv", "w");
 	fprintf(initialFreqs, "SiteIndex,LinkageGroup,DerivedAlleleCount,DerivedAlleleFreq,SelectionCoefficient,SiteClassCode,SiteClassName\n");
@@ -694,7 +702,7 @@ void setUpGenome(void)
 			nSelectedSites++;
 		
 		
-		fprintf(initialFreqs, "%llu,%i,%llu,%E,%E", focalSiteIndex, linkageGroupMembership[focalSiteIndex], alleleCounts[focalSiteIndex], alleleFrequencies[focalSiteIndex], selectionCoefficients[focalSiteIndex] );
+		fprintf(initialFreqs, "%lu,%i,%lu,%E,%E", focalSiteIndex, linkageGroupMembership[focalSiteIndex], alleleCounts[focalSiteIndex], alleleFrequencies[focalSiteIndex], selectionCoefficients[focalSiteIndex] );
 		SiteClassCode = siteClassifications[focalSiteIndex];
 		fprintf(initialFreqs, ",%i", SiteClassCode);
 		if ( SiteClassCode == SITE_CLASS_BGS )
@@ -719,7 +727,7 @@ void setUpGenome(void)
 	fprintf(initialFreqs, "AlleleCount,NumberOfSites\n");
 	for ( foo = 0; foo < (PLOIDY * N); foo++ ) {
 		if ( SFScounts[foo] ) {
-			fprintf(initialFreqs, "%llu,%llu\n", foo, SFScounts[foo]);
+			fprintf(initialFreqs, "%lu,%lu\n", foo, SFScounts[foo]);
 		}
 	}
 	fclose(initialFreqs);
@@ -734,9 +742,9 @@ void setUpGenome(void)
 }
 
 
-void setUpInitialAlleleFrequencies(double *expectedFreq, unsigned long long int *SFScounts)
+void setUpInitialAlleleFrequencies(double *expectedFreq, unsigned long int *SFScounts)
 {
-	unsigned long long int i, copies, focalSiteIndex;
+	unsigned long int i, copies, focalSiteIndex;
 	double dum, *dpt, twoN;
 	_Bool looking;
 	
@@ -785,10 +793,10 @@ void setUpInitialAlleleFrequencies(double *expectedFreq, unsigned long long int 
 
 void setUpPopulations(void)
 {
-	unsigned long long int neededSize, focalSiteIndex;
+	unsigned long int neededSize, focalSiteIndex;
 	int i;
-	unsigned long long int j, k, index, counter, siteAlleleCount;
-	unsigned long long int choiceVector[(PLOIDY * N)], allelesToSwitch[(PLOIDY * N)];
+	unsigned long int j, k, index, counter, siteAlleleCount;
+	unsigned long int choiceVector[(PLOIDY * N)], allelesToSwitch[(PLOIDY * N)];
 	short int *sipt;
 	double stepSize;
 	
@@ -832,12 +840,12 @@ void setUpPopulations(void)
 		focalSiteIndex = parentalTrackedSiteIndexes[j];
 		siteAlleleCount = alleleCounts[focalSiteIndex];
 		if ( siteAlleleCount <= 0 || siteAlleleCount >= (PLOIDY * N) ) {
-			printf("\nError in setUpPopulations():\n\tsiteAlleleCount (= %llu) out of bounds.\n", siteAlleleCount);
+			printf("\nError in setUpPopulations():\n\tsiteAlleleCount (= %lu) out of bounds.\n", siteAlleleCount);
 			exit(-1);
 		}
 		
 		// int gsl_ran_choose (const gsl_rng * r, void * dest, size_t k, void * src, size_t n, size_t size)
-		gsl_ran_choose( rngState, allelesToSwitch, siteAlleleCount, choiceVector, (PLOIDY * N), sizeof(unsigned long long int) );
+		gsl_ran_choose( rngState, allelesToSwitch, siteAlleleCount, choiceVector, (PLOIDY * N), sizeof(unsigned long int) );
 		
 		for ( k = 0; k < siteAlleleCount; k++ ) {
 			// index into genotypes array
@@ -858,7 +866,7 @@ void setUpPopulations(void)
 		fprintf(initgts, "Locus0Copy0,Locus0Copy1");
 		for ( k = 1; k < nTrackedSitesInParents; k++ ) {
 			for ( i = 0; i < PLOIDY; i++ ) {
-				fprintf(initgts, ",Locus%lluCopy%i", k, i);
+				fprintf(initgts, ",Locus%luCopy%i", k, i);
 			}
 		}
 		fprintf(initgts,"\n");

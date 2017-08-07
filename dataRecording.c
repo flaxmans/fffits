@@ -27,8 +27,8 @@ void dataRecording(void)
 void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreqs)
 {
 	long int i, j, alleleCountsByPopulation[(nPOPULATIONS * nTrackedSitesInParents)];
-	unsigned long long int SFScountsByPopulation[(nPOPULATIONS * 2 * N)], nDivSites = 0, nPosSites = 0;
-	unsigned long long int siteMasterIndex, nSegSites = 0, nNeutralSites = 0, nBGsites = 0, SFScounts[(PLOIDY * N)];
+	unsigned long int SFScountsByPopulation[(nPOPULATIONS * 2 * N)], nDivSites = 0, nPosSites = 0;
+	unsigned long int siteMasterIndex, nSegSites = 0, nNeutralSites = 0, nBGsites = 0, SFScounts[(PLOIDY * N)];
 	short int *sipt, siteClass;
 	long int nhere, count, dumIndex, globalCounts[nTrackedSitesInParents], twoN = 2 * N;
 	double oneOver2N, FSTarray[nTrackedSitesInParents];
@@ -75,7 +75,7 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 			// global allele frequencies
 #ifdef DEBUG
 			if ( count < 0 ) {
-				fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tcount (%li) < 0 for siteMasterIndex = %llu, siteStatus = %i\n", count, siteMasterIndex, *(sitesStatuses + siteMasterIndex));
+				fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tcount (%li) < 0 for siteMasterIndex = %lu, siteStatus = %i\n", count, siteMasterIndex, *(sitesStatuses + siteMasterIndex));
 				exit(-1);
 			}
 #endif
@@ -102,9 +102,9 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 		}
 		siteMasterIndex = *(parentalTrackedSiteIndexes + i);
 		if ( count != ( *(alleleCounts + siteMasterIndex) ) ) {
-			fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tsum count (%li) by popn != value from alleleCounts (%llu); globalFreqs[i] = %E\n", count, *(alleleCounts + siteMasterIndex), globalFreqs[i]);
-			fprintf(stderr, "\n\tN = %li, t = %li, i = %li, j = %li, siteMasterIndex = %llu\n", N, t, i, j, siteMasterIndex);
-			fprintf(stderr, "\n\tsiteStatus = %i, nTrackedSitesInParents = %llu\n", *(sitesStatuses + siteMasterIndex), nTrackedSitesInParents);
+			fprintf(stderr, "\nError in calculatePopGenMetrics():\n\tsum count (%li) by popn != value from alleleCounts (%lu); globalFreqs[i] = %E\n", count, *(alleleCounts + siteMasterIndex), globalFreqs[i]);
+			fprintf(stderr, "\n\tN = %li, t = %li, i = %li, j = %li, siteMasterIndex = %lu\n", N, t, i, j, siteMasterIndex);
+			fprintf(stderr, "\n\tsiteStatus = %i, nTrackedSitesInParents = %lu\n", *(sitesStatuses + siteMasterIndex), nTrackedSitesInParents);
 			for ( j = 0; j < nPOPULATIONS; j++ ) {
 				fprintf(stderr, "\tpop%li count = %li\n", j, *(alleleCountsByPopulation + (nTrackedSitesInParents * j) + i) );
 			}
@@ -116,13 +116,13 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 	
 	// print calculations to files:
 	// pointers to big arrays:
-	unsigned long long int *ullipt = parentalTrackedSiteIndexes; // master site index
+	unsigned long int *ullipt = parentalTrackedSiteIndexes; // master site index
 	
 	// print allele counts and FST:
 	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
 		siteMasterIndex = *ullipt;
 		if ( globalCounts[i] > 0 && globalCounts[i] < twoN ) {
-			fprintf(dataFile_alleleFreqTS, "%li,%llu,%i,%li,%E,%E,%i", t, siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), globalCounts[i], globalFreqs[i], *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
+			fprintf(dataFile_alleleFreqTS, "%li,%lu,%i,%li,%E,%E,%i", t, siteMasterIndex, *(linkageGroupMembership + siteMasterIndex), globalCounts[i], globalFreqs[i], *(selectionCoefficients + siteMasterIndex), *(siteClassifications + siteMasterIndex) );
 			for ( j = 0; j < nPOPULATIONS; j++ ) {
 				dumIndex = (j * nTrackedSitesInParents) + i;
 				fprintf(dataFile_alleleFreqTS, ",%li", ( *(alleleCountsByPopulation + dumIndex) ) );
@@ -133,12 +133,12 @@ void calcAlleleCountsFreqsFSTandSFS(double *alleleFreqsByPop, double *globalFreq
 	}
 	
 	// print segregating site counts
-	fprintf(dataFile_segSiteTS, "%li,%llu,%llu,%llu,%llu,%llu\n", t, nSegSites, nNeutralSites, nBGsites, nPosSites, nDivSites);
+	fprintf(dataFile_segSiteTS, "%li,%lu,%lu,%lu,%lu,%lu\n", t, nSegSites, nNeutralSites, nBGsites, nPosSites, nDivSites);
 	
 	// print the SFS
 	for ( i = 1; i < (PLOIDY * N); i++ ) {
 		if ( *(SFScounts + i) > 0 && *(SFScounts + i) < twoN ) {
-			fprintf(dataFile_SFS_TS, "%li,%li,%llu\n", t, i, *(SFScounts + i));
+			fprintf(dataFile_SFS_TS, "%li,%li,%lu\n", t, i, *(SFScounts + i));
 		}
 	}
 }
@@ -196,7 +196,7 @@ void calculateAndPrintPi(double *alleleFreqsByPop, double *globalFreqs)
 {
 	long int i, j;
 	double mySums[nSITE_CLASSES], mySum, p, *afbppt;
-	unsigned long long int *ullipt;
+	unsigned long int *ullipt;
 	short int siteClass;
 	double piWithin[nSITE_CLASSES][nPOPULATIONS];
 	
@@ -262,7 +262,7 @@ void calculateAndPrintDXY(double *alleleFreqsByPop)
 {
 	long int i, j, pop1, pop2;
 	double p1, p2, *afbppt1, *afbppt2;
-	unsigned long long int *ullipt;
+	unsigned long int *ullipt;
 	short int siteClass;
 	int numCombos;
 	numCombos = (nPOPULATIONS * (nPOPULATIONS - 1)) / 2; // # of population pairs to compare
