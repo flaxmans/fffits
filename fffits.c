@@ -63,13 +63,13 @@ double *migRatePt, *KvalPt;
 FILE *dataFile_alleleFreqTS, *dataFile_SFS_TS, *dataFile_segSiteTS; // *dataFile_alleleFreqTSbyPop,
 FILE *dataFile_derivedFixationTS, *dataFile_abundances, *dataFile_PiAndDXY;
 int *siteClassifications; // site classifications
+unsigned long int totalMutationsForRun = 0;
 
 
 // function declarations
 long int arraySearch(double *fnlpt, long int nparents);
 long int calculateNumOffspring(int pop);
 short int * checkMemoryBlocks(long int totalOffspring, long int nSitesInOffspring);
-//void chooseParents(long int *mommy, long int *daddy, double *dpt, long int nparents);
 void chooseParentsAtRandom(long int *mommy, long int *daddy, long int *randomNumberLine, long int nhere);
 void computeFitness(double *fitnessValues);
 long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, short int *offsp_lociStates, long int nNewMutations, unsigned long int *mutatedLoci );
@@ -172,7 +172,7 @@ long int calculateNumOffspring(int pop)
     nhere = *(abundances + pop);
     if ( nhere > 1 ) {
 		// ensures that selfing is not allowed because later on
-		// mom and dad must be different individuals (in chooseParents())
+		// mom and dad must be different individuals (in parent choice algorithm)
         if ( FIXED_POP_SIZE )
             numOffspring = (long int) *(KvalPt + pop);
         else {
@@ -268,33 +268,15 @@ void chooseMutationSites( unsigned long int *mutatedLoci, long int nNewMutations
 }
 
 
-//void chooseParents(long int *mommy, long int *daddy, double *fnlpt, long int nparents)
-//{
-//    long int i, j;
-//    double dum, *dpt;
-//
-//    dpt = fnlpt;
-//    // dpt is the pointer to first entry in the the fitness number line for this patch
-//	
-//	// get mom first:
-//	*mommy = arraySearch(dpt, nparents);
-//
-//	do {
-//		*daddy = arraySearch(dpt, nparents);
-//	} ( while )
-//		
-////    if ( VERBOSE ) {
-////        printf("\nMommy = %li, daddy = %li\n", *mommy, *daddy);
-////    }
-//
-//}
-
 
 void chooseParentsAtRandom(long int *mommy, long int *daddy, long int *randomNumberLine, long int nhere)
 {
     long int chosenOnes[2];
     
     gsl_ran_choose( rngState, chosenOnes, 2, randomNumberLine, nhere, sizeof(long int) );
+	if ( t == 1 ) {
+		fprintf(stdout, "\nYo! gsl_ran_choose() is really slow for this.  Rewrite chooseParentsAtRandom()!\n");
+	}
     
     *mommy = chosenOnes[0];
     *daddy = chosenOnes[1];
@@ -597,6 +579,9 @@ void finalTasks(unsigned RNG_SEED)
     free(locations);
     free(environmentGradient);
     free(linkageGroupMembership);
+	
+	fprintf(stdout, "\nTotal mutations that arose during run:  %lu\n", totalMutationsForRun);
+	
 }
 
 
@@ -707,21 +692,21 @@ void makeDemesIndexes(long int *individualsInDeme)
 
 void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, long int nSitesInOffspring, unsigned long int *offsp_SiteIndexes, short int *offsp_lociStates)
 {
-    int i, currentLinkageGroup;
+    int i, currentLinkageGroup, thisSiteLG;
     unsigned long int j, focalSite, *offsp_SIpt, *parentalLocusIndexes;
     short int *sipt, *parentPoint, *offsp_ls;
     int chromosome;
     double meanRecombDistance = 1000.0 / RECOMBINATION_RATE_PER_KB;
     unsigned long int nextRecombinationSpot;
     long int parentalLocusCounter;
-    
-    if ( VERBOSE ) {
+	
+#ifdef DEBUG
         if ( *(locations + momIndex) != *(locations + dadIndex) ) {
             printf("\nError in makeOneOffspring:\n\tIndexes are off giving bogus mom or dad\n");
             exit(-1);
         }
-    }
-    
+#endif
+	
     for ( i = 0; i < 2; i++ ) {
         
         sipt = offGTpt + i; // which haploid set in offspring
@@ -762,9 +747,11 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
             
             // now copy alleles from parents to offspring
             if ( *offsp_ls == LOCUS_STATUS_VARIABLE_IN_PARENTS || *offsp_ls == LOCUS_STATUS_VARIABLE_PLUS_MUT ) {
-                
+				
+				thisSiteLG = *(linkageGroupMembership + focalSite);
+				
                 // first handle recombination and independent assortment
-                if ( *(linkageGroupMembership + focalSite) != currentLinkageGroup ) {
+                if ( thisSiteLG != currentLinkageGroup ) {
                     // new "chromosome"; need to implement independent assortment
                     if ( gsl_rng_uniform(rngState) < 0.5 ) {
                         // flip to other chromosome in parent
@@ -777,11 +764,13 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
                             chromosome = 1;
                         }
                     }
-                    if ( *(linkageGroupMembership + focalSite) < currentLinkageGroup ) {
-                        fprintf(stderr, "\nError in makeOneOffspring():\n\t*(linkageGroupMembership + focalSite) (%i) < currentLinkageGroup (%i)\n", *(linkageGroupMembership + focalSite), currentLinkageGroup );
+#ifdef DEBUG
+                    if ( thisSiteLG < currentLinkageGroup ) {
+                        fprintf(stderr, "\nError in makeOneOffspring():\n\t*(linkageGroupMembership + focalSite) (%i) < currentLinkageGroup (%i)\n", thisSiteLG, currentLinkageGroup );
                         exit(-1);
                     }
-                    currentLinkageGroup = *(linkageGroupMembership + focalSite);
+#endif
+                    currentLinkageGroup = thisSiteLG;
                     
                     nextRecombinationSpot = focalSite + ((unsigned long int) randExp( meanRecombDistance ));
                 }
@@ -817,6 +806,7 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
                     }
                 }
             }
+#ifdef DEBUG
             else if ( *offsp_ls == LOCUS_STATUS_NEW_MUT_ONLY ) {
                 *sipt = ALLELE_CODE_ANCESTRAL; // just put in the locus as a placeholder; mutations added later
                 // do NOT advance any parent pointers or counters
@@ -825,9 +815,14 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
                 fprintf(stderr, "\nError in makeOneOffspring():\n\t*offsp_ls = %i code not recognized.\n", *offsp_ls);
                 exit(-1);
             }
-            
+#else
+			else
+				*sipt = ALLELE_CODE_ANCESTRAL; // just put in the locus as a placeholder; mutations added later
+				// do NOT advance any parent pointers or counters
+#endif
+			
             if ( *sipt )
-                *(alleleCounts + focalSite) += *sipt; // record derived allele counts
+                *(alleleCounts + focalSite) += 1; // record derived allele counts
             
             sipt += PLOIDY; // move to next locus in offspring haplotype
             offsp_SIpt++; // next site index in offspring
@@ -977,7 +972,7 @@ void printParametersToFiles(unsigned RNG_SEED)
     double *dpt, THETA;
     unsigned long int foo;
     
-    rfile = fopen("metadataAndParameters.R","w");
+    rfile = fopen("MetadataAndParameters.R","w");
     fprintf(rfile, "RNG_SEED <- %u\n", RNG_SEED);
     fprintf(rfile, "TIME_SERIES_SAMPLE_FREQ <- %li\n", TIME_SERIES_SAMPLE_FREQ);
     fprintf(rfile, "nGENERATIONS <- %li\n", nGENERATIONS);
@@ -1096,6 +1091,7 @@ void printParametersToFiles(unsigned RNG_SEED)
     for ( i = 1; i < nPOPULATIONS; i++ )
         fprintf(rfile, ",%li", abundances[i]);
     fprintf(rfile, ")\n");
+	fprintf(rfile, "totalMutationsForRun <- %lu\n", totalMutationsForRun);
     
     fprintf(rfile, "\n");
     
@@ -1201,6 +1197,7 @@ void reproduction(void)
     // figure out how many mutations and which sites, including possibility for repeat and back mutation
 	// potential optimization with lookup table??
     nNewMutations = gsl_ran_poisson( rngState, (GENOME_MU * ((double) totalOffspring)) );
+	totalMutationsForRun += nNewMutations;
 	
     unsigned long int mutatedLoci[nNewMutations];
 	// next was hugely expensive:

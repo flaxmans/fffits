@@ -890,7 +890,7 @@ void setUpPopulations(void)
 	for ( i = 0; i < nPOPULATIONS; i++ ) {
 		if ( ENVIRONMENT_TYPE == ENVT_TYPE_GRADIENT ) {
 			environmentGradient[i] = ENVT_MIN + (((double) i) * stepSize);
-			if ( i == 0 )
+			if ( i == 0 && nPOPULATIONS > 2 )
 				fprintf(stdout, "\nNote from setUpPopulations():\n\tEnvironment gradient algorithm assumes a one-dimensional habitat\n");
 		}
 		else if ( ENVIRONMENT_TYPE == ENVT_TYPE_MOSAIC ) {
