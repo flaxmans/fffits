@@ -72,11 +72,12 @@ long int calculateNumOffspring(int pop);
 short int * checkMemoryBlocks(long int totalOffspring, long int nSitesInOffspring);
 void chooseParentsAtRandom(long int *mommy, long int *daddy, long int *randomNumberLine, long int nhere);
 void computeFitness(double *fitnessValues);
-long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, short int *offsp_lociStates, long int nNewMutations, unsigned long int *mutatedLoci );
+long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, short int *offsp_lociStates, long int nNewMutations, unsigned long int *mutatedLoci, _Bool *copyFromParents );
+void figureOutSkippedParentalSites( _Bool *skipTheseParentalSites );
 void finalTasks(unsigned RNG_SEED);
 void makeCumulativeFitnessNumLines(double *fitnessValues, double *fitnessNumLines, long int *individualsInDeme);
 void makeDemesIndexes(long int *individualsInDeme);
-void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, long int nSitesInOffspring, unsigned long int *offsp_SiteIndexes, short int *offsp_lociStates);
+void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, long int nSitesInOffspring, unsigned long int *offsp_SiteIndexes, _Bool *copyFromParents, _Bool *skipTheseParentalSites );
 void migration(void);
 void myInsertSort(unsigned long int * array, long int numElements);
 void printParametersToFiles(unsigned RNG_SEED);
@@ -390,17 +391,19 @@ void computeFitness(double *fitnessValues)
 }
 
 
-long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, short int *offsp_lociStates, long int nNewMutations, unsigned long int *mutatedLoci )
+long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, short int *offsp_lociStates, long int nNewMutations, unsigned long int *mutatedLoci, _Bool *copyFromParents )
 {
     long int nSitesInOffspring = 0, newMutationSiteCount = 0, parentalSiteCount = 0, nRepeatMutations = 0;
     unsigned long int locus, *newLocusIndexPt, *variableSitePt, *offsp_pt;
     long int i, totalSitesDone = 0, retainedSites = 0, nSitesToDo, nBrandNewMutations = 0;
     short int *offsp_ls;
+	_Bool *bpt;
 
     newLocusIndexPt = mutatedLoci;
     variableSitePt = parentalTrackedSiteIndexes;
     offsp_pt = offsp_SiteIndexes;
     offsp_ls = offsp_lociStates;
+	bpt = copyFromParents;
     
     nSitesToDo = nNewMutations + nTrackedSitesInParents;
     while ( totalSitesDone < nSitesToDo ) {
@@ -416,6 +419,8 @@ long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, sh
                     
                     *offsp_ls = LOCUS_STATUS_VARIABLE_IN_PARENTS; // record the status
                     offsp_ls++; // advance the status pointer
+					*bpt = 1;
+					bpt++;
                     
                     nSitesInOffspring++; // increment the total offspring site counter
                     retainedSites++;
@@ -432,6 +437,8 @@ long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, sh
                 
                 *offsp_ls = LOCUS_STATUS_NEW_MUT_ONLY; // record the status
                 offsp_ls++; // advance the status pointer
+				*bpt = 0;
+				bpt++;
                 
                 newLocusIndexPt++; // advance new locus index pointer
                 
@@ -454,6 +461,8 @@ long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, sh
                 
                 *offsp_ls = LOCUS_STATUS_VARIABLE_PLUS_MUT; // record the status
                 offsp_ls++; // advance the status pointer
+				*bpt = 1;
+				bpt++;
                 
                 newLocusIndexPt++; // advance BOTH parental AND mutations pointers and their respective counts
                 newMutationSiteCount++;
@@ -477,6 +486,8 @@ long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, sh
                 
                 *offsp_ls = LOCUS_STATUS_VARIABLE_IN_PARENTS; // record the status
                 offsp_ls++; // advance the status pointer
+				*bpt = 1;
+				bpt++;
                 
                 nSitesInOffspring++; // increment the total offspring site counter
                 retainedSites++;
@@ -493,6 +504,8 @@ long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, sh
             
             *offsp_ls = LOCUS_STATUS_NEW_MUT_ONLY; // record the status
             offsp_ls++; // advance the status pointer
+			*bpt = 0;
+			bpt++;
             
             newLocusIndexPt++; // advance new locus index pointer
             
@@ -550,10 +563,33 @@ long int figureOutOffspringGenomeSites( unsigned long int *offsp_SiteIndexes, sh
 }
 
 
+void figureOutSkippedParentalSites( _Bool *skipTheseParentalSites )
+{
+	// function makes an array that is useful for conditional tests later on so that we aren't doing complex
+	// conditionals on sites all over memory repeatly.
+	// we jump around memory once and then use this contiguous array repeatedly (in makeOneOffspring)
+	
+	unsigned long int *variableSitePt, locus;
+	long int i;
+	_Bool *bpt = skipTheseParentalSites;
+
+	variableSitePt = parentalTrackedSiteIndexes;
+	
+	for ( i = 0; i < nTrackedSitesInParents; i++ ) {
+		locus = *variableSitePt;
+		if ( *(sitesStatuses + locus) == LOCUS_STATUS_VARIABLE_IN_PARENTS )
+			*bpt = 0;
+		else
+			*bpt = 1;
+		bpt++;
+	}
+}
+
+
 void finalTasks(unsigned RNG_SEED)
 {
     printParametersToFiles(RNG_SEED);
-    
+	
     fclose(dataFile_alleleFreqTS);
 //    fclose(dataFile_alleleFreqTSbyPop);
     fclose(dataFile_SFS_TS);
@@ -690,15 +726,16 @@ void makeDemesIndexes(long int *individualsInDeme)
 }
 
 
-void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, long int nSitesInOffspring, unsigned long int *offsp_SiteIndexes, short int *offsp_lociStates)
+void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, long int nSitesInOffspring, unsigned long int *offsp_SiteIndexes, _Bool *copyFromParents, _Bool *skipTheseParentalSites)
 {
     int i, currentLinkageGroup, thisSiteLG;
     unsigned long int j, focalSite, *offsp_SIpt, *parentalLocusIndexes;
-    short int *sipt, *parentPoint, *offsp_ls;
+    short int *sipt, *parentPoint;
     int chromosome;
     double meanRecombDistance = 1000.0 / RECOMBINATION_RATE_PER_KB;
     unsigned long int nextRecombinationSpot;
     long int parentalLocusCounter;
+	_Bool *bpt, *parentSkipBpt;
 	
 #ifdef DEBUG
         if ( *(locations + momIndex) != *(locations + dadIndex) ) {
@@ -711,13 +748,18 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
         
         sipt = offGTpt + i; // which haploid set in offspring
         
-        
+MARK(MOO_SetUpPointers)
+		
+		parentSkipBpt = skipTheseParentalSites; // parent skip site pointer
+		
         parentalLocusCounter = 0;
         parentalLocusIndexes = parentalTrackedSiteIndexes;
         if ( nTrackedSitesInParents ) {
-            while ( *(sitesStatuses + *parentalLocusIndexes) != LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
+            //while ( *(sitesStatuses + *parentalLocusIndexes) != LOCUS_STATUS_VARIABLE_IN_PARENTS ) {
+			while ( *parentSkipBpt ) {
                 parentalLocusCounter++; // so we can start at the first site (locus) that needs to be inherited
                 parentalLocusIndexes++;
+				parentSkipBpt++;
             }
         }
         
@@ -728,7 +770,8 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
             parentPoint = gts + (PLOIDY * nTrackedSitesInParents * dadIndex ) + (PLOIDY * parentalLocusCounter);
         
         
-        
+MARK(MOO_FirstLocus)
+		
         // which chromosome to start with in the parent
         if ( gsl_rng_uniform( rngState ) < 0.5 ) {
             chromosome = 0;
@@ -739,19 +782,26 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
         }
         currentLinkageGroup = 0;
 
-        offsp_ls = offsp_lociStates;
+		bpt = copyFromParents;
         offsp_SIpt = offsp_SiteIndexes;
         nextRecombinationSpot = (unsigned long int) randExp( meanRecombDistance );
-        for ( j = 0; j < nSitesInOffspring; j++ ) {
+
+MARK(MOO_BigForLoopStart)
+
+		for ( j = 0; j < nSitesInOffspring; j++ ) {
             focalSite = *offsp_SIpt;
             
             // now copy alleles from parents to offspring
-            if ( *offsp_ls == LOCUS_STATUS_VARIABLE_IN_PARENTS || *offsp_ls == LOCUS_STATUS_VARIABLE_PLUS_MUT ) {
-				
+            if ( *bpt ) { // yes copy
+
+MARK(MOO_FirstBigIfClause)
+
 				thisSiteLG = *(linkageGroupMembership + focalSite);
 				
                 // first handle recombination and independent assortment
                 if ( thisSiteLG != currentLinkageGroup ) {
+					
+MARK(MOO_SubIf1)
                     // new "chromosome"; need to implement independent assortment
                     if ( gsl_rng_uniform(rngState) < 0.5 ) {
                         // flip to other chromosome in parent
@@ -775,6 +825,8 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
                     nextRecombinationSpot = focalSite + ((unsigned long int) randExp( meanRecombDistance ));
                 }
                 else if ( focalSite > nextRecombinationSpot ) {
+					
+MARK(MOO_SubElseIf)
                     // implement recombination within a linkage group
                     do {
                         // do-while loop allows for multiple recombination events
@@ -789,44 +841,37 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
                         nextRecombinationSpot += ((unsigned long int) randExp( meanRecombDistance ));
                     } while ( focalSite > nextRecombinationSpot );
                 }
-                
+MARK(MOO_PointerBusiness)
                 *sipt = *parentPoint;
                 parentalLocusCounter++;  // one more parental locus taken care of
-                if ( j < (nSitesInOffspring - 1) && parentalLocusCounter < nTrackedSitesInParents ) {
+				if ( j < (nSitesInOffspring - 1) && parentalLocusCounter < nTrackedSitesInParents ) {
                     parentalLocusIndexes++; // advance to index of next parental site/locus
+					parentSkipBpt++; // move on to check next locus
                     parentPoint += PLOIDY; // advance to next site in genome
-                    while ( *(sitesStatuses + *parentalLocusIndexes) != LOCUS_STATUS_VARIABLE_IN_PARENTS && parentalLocusCounter < nTrackedSitesInParents ) {
+MARK(MOO_PBwhile)
+                    while ( *parentSkipBpt && parentalLocusCounter < nTrackedSitesInParents ) {
                         parentalLocusCounter++; // count prior locus toward those that are "done"
                         // the while part helps skip over loci that will no longer be tracked
                         if ( parentalLocusCounter < nTrackedSitesInParents ) {
                             // if statement prevents seg fault on last While check
                             parentalLocusIndexes++; // advance to index of next parental site/locus
                             parentPoint += PLOIDY; // advance to next site in genome
+							parentSkipBpt++;
                         }
                     }
                 }
+MARK(MOO_EndBigIf)
             }
-#ifdef DEBUG
-            else if ( *offsp_ls == LOCUS_STATUS_NEW_MUT_ONLY ) {
-                *sipt = ALLELE_CODE_ANCESTRAL; // just put in the locus as a placeholder; mutations added later
-                // do NOT advance any parent pointers or counters
-            }
-            else {
-                fprintf(stderr, "\nError in makeOneOffspring():\n\t*offsp_ls = %i code not recognized.\n", *offsp_ls);
-                exit(-1);
-            }
-#else
 			else
 				*sipt = ALLELE_CODE_ANCESTRAL; // just put in the locus as a placeholder; mutations added later
 				// do NOT advance any parent pointers or counters
-#endif
 			
             if ( *sipt )
                 *(alleleCounts + focalSite) += 1; // record derived allele counts
-            
+MARK(MOO_FinalPointers)
             sipt += PLOIDY; // move to next locus in offspring haplotype
             offsp_SIpt++; // next site index in offspring
-            offsp_ls++; // next locus state
+			bpt++; // next copy directive
         }
     }
     
@@ -1170,6 +1215,7 @@ void reproduction(void)
     double fitnessValues[N], fitnessNumLines[N], *dpt;
     unsigned long int locus, *ullipt;
     unsigned long int *offsp_SiteIndexes;
+	_Bool skipTheseParentalSites[nTrackedSitesInParents];
     
     if ( INCLUDE_SELECTION )
         computeFitness(fitnessValues);
@@ -1207,9 +1253,12 @@ void reproduction(void)
     maxSitesInOffspring = nTrackedSitesInParents + nNewMutations;
     short int offsp_lociStates[maxSitesInOffspring];
     offsp_SiteIndexes = (unsigned long int *) malloc( maxSitesInOffspring * sizeof( unsigned long int ) );
+	_Bool copyFromParents[maxSitesInOffspring];
     
     // determine which sites will need to be tracked among offspring
-    nSitesInOffspring = figureOutOffspringGenomeSites( offsp_SiteIndexes, offsp_lociStates, nNewMutations, mutatedLoci );
+    nSitesInOffspring = figureOutOffspringGenomeSites( offsp_SiteIndexes, offsp_lociStates, nNewMutations, mutatedLoci, copyFromParents );
+	// make a useful array of information about loci to skip in parents because they are no long variable:
+	figureOutSkippedParentalSites( skipTheseParentalSites );
     
     // debug
     //printf("\nreproduction: time, nTrackedSitesInParents, nSitesInOffspring, nNewMutations, N\n\t%li\t%lu\t%li\t%li\t%li", t, nTrackedSitesInParents, nSitesInOffspring, nNewMutations, N);
@@ -1261,7 +1310,7 @@ void reproduction(void)
                     chooseParentsAtRandom(&mommy, &daddy, randomNumberLine, nhere);
                 momIndex = *(lipt + mommy); // actual index of mom (again, since there is no sort)
                 dadIndex = *(lipt + daddy);
-                makeOneOffspring(momIndex, dadIndex, sipt, nSitesInOffspring, offsp_SiteIndexes, offsp_lociStates);
+                makeOneOffspring(momIndex, dadIndex, sipt, nSitesInOffspring, offsp_SiteIndexes, copyFromParents, skipTheseParentalSites);
                 *locpt = pop;
                 locpt++;
                 sipt += (PLOIDY * nSitesInOffspring);

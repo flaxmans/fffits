@@ -45,6 +45,7 @@
 #define LOCUS_STATUS_VARIABLE_PLUS_MUT 2
 #define LOCUS_STATUS_NEW_MUT_ONLY 3
 #define LOCUS_STATUS_TRACKED_IN_PARENTS 4
+#define LOCUS_STATUS_COPY_FROM_PARENTS 5
 
 
 /*  ************* FUNCTION DECLARATIONS ***************** */
@@ -113,6 +114,15 @@ extern FILE *dataFile_derivedFixationTS;
 extern FILE *dataFile_abundances;
 extern FILE *dataFile_PiAndDXY;
 
+
+// for debugging purposes:
+//
+// MARK() allows us to place a mark inside a function that will be
+// visible to the profilers as if the code had separate functions.
+// NOTE: this can be tripped up by optimizer inlining of functions.
+// Comment out first line and uncomment second one to turn off
+#define MARK(K) asm("M."#K":");
+//#define MARK(K)
 
 
 
