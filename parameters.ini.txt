@@ -1,7 +1,7 @@
 RNG_SEED 1
 
 # population and time duration parameters
-nGENERATIONS 1000
+nGENERATIONS 2000
 nPOPULATIONS 2
 
 nDEMOGRAPHIC_CHANGES 0
