@@ -50,6 +50,7 @@ int initializationSteps( int argc, char *argv[], char *progname )
 	setUpGenome();
 	setUpPopulations();
 	setUpDataFiles();
+    makeExpLookupTable();
 	
 	return ( RNG_SEED );
 }

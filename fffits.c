@@ -65,6 +65,9 @@ FILE *dataFile_alleleFreqTS, *dataFile_SFS_TS, *dataFile_segSiteTS; // *dataFile
 FILE *dataFile_derivedFixationTS, *dataFile_abundances, *dataFile_PiAndDXY;
 int *siteClassifications; // site classifications
 unsigned long int totalMutationsForRun = 0;
+unsigned long int expIncrement, halfIncr;
+double *expLookupTable,expMedianVal;
+unsigned long int expLookupMedian;
 
 
 // function declarations
@@ -93,6 +96,7 @@ int main(int argc, char *argv[])
 {
     unsigned int RNG_SEED;
 	char *progname = argv[0];
+    unsigned long int i, dumval;
 	
 	RNG_SEED = initializationSteps(argc, argv, progname);
     
@@ -101,6 +105,11 @@ int main(int argc, char *argv[])
         migration();
         
         reproduction(); // includes fecundity selection
+        
+        for ( i = 0; i < 20; i++ ) {
+            dumval = randExpLookup();
+        }
+        
         
         if ( N == 0 ) {
             // all extinct
@@ -614,6 +623,7 @@ void finalTasks(unsigned RNG_SEED)
     free(locations);
     free(environmentGradient);
     free(linkageGroupMembership);
+    free(expLookupTable);
 	
 	fprintf(stdout, "\nTotal mutations that arose during run:  %lu\n", totalMutationsForRun);
 	

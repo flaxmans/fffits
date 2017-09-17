@@ -45,6 +45,7 @@
 #define LOCUS_STATUS_VARIABLE_PLUS_MUT 2
 #define LOCUS_STATUS_NEW_MUT_ONLY 3
 #define LOCUS_STATUS_TRACKED_IN_PARENTS 4
+#define MAX_EXP_TABLE_SIZE 10000000 // for exp lookup functions; max # elements
 
 
 /*  ************* FUNCTION DECLARATIONS ***************** */
@@ -70,7 +71,9 @@ void dataRecording(void);
 void writeAbundances(void);
 // others used across multiple src files:
 void chooseMutationSites( unsigned long int *mutatedLoci, long int nNewMutations );
-
+// exp lookup:
+void makeExpLookupTable(void);
+unsigned long int randExpLookup(void);
 
 /*  ************* GLOBAL VARIABLES ***************** */
 extern _Bool VERBOSE;
@@ -104,6 +107,9 @@ extern long int TIME_SERIES_SAMPLE_FREQ;
 extern double *migRatePt, *KvalPt;
 extern double GENOME_MU;
 extern long int t;
+extern unsigned long int expIncrement, halfIncr;
+extern double *expLookupTable, expMedianVal;
+extern unsigned long int expLookupMedian;
 
 // global file pointers
 extern FILE *dataFile_alleleFreqTS;
