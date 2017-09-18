@@ -111,36 +111,36 @@ unsigned long int randExpLookup(void)
         exit(-1);
     }
     
-    static int maxPrintTimes = 10;
-    static int last_t = 1;
-    long int thisMethod, randExpMethod, mydiff, myexpincr = (long int) expIncrement;
-    static double myCounter = 0.0, mySum = 0.0;
-    thisMethod = ( (i * expIncrement) - halfIncr );
-    randExpMethod = (unsigned long int) ((log(1.0 - dum)) * (-1000.0 / RECOMBINATION_RATE_PER_KB));
-    mydiff = (thisMethod - randExpMethod);
-    if ( thisMethod < nSITES ) {
-        if ( ((thisMethod - randExpMethod) > myexpincr) || ((thisMethod - randExpMethod) < -myexpincr ) ) {
-            fprintf(stderr, "\nError in randExpLookup(): \n\tthisMethod = %li, randExpMethod = %li, diff = %li, expIncrement = %lu\n", thisMethod, randExpMethod, mydiff, myexpincr);
-            exit(-1);
-        }
-        myCounter++;
-        mySum += (double) mydiff;
-    }
-    if ( t % 10 == 1 && t <= 101 ) {
-        if ( t != last_t )  {
-            last_t = t;
-            maxPrintTimes = 10;
-            fprintf(stdout, "\nt = %lu\n", t);
-        }
-        if ( maxPrintTimes ) {
-            maxPrintTimes--;
-            fprintf(stdout, "\tdum = %f, i = %lu, *testVal = %f, this = %li, randExp() = %li, diff = %li, avgDev = %f\n", dum, i, *testVal, thisMethod, randExpMethod, mydiff, mySum/myCounter );
-        }
-        // with algorithms as written above, this check confirms that the average deviation between
-        // this method and the randExp() method is 0.5, which is exactly what we expect if this
-        // algorithm is working properly, because the randExp() results were simply truncated (floored)
-        // to the integer component
-    }
+//    static int maxPrintTimes = 10;
+//    static int last_t = 1;
+//    long int thisMethod, randExpMethod, mydiff, myexpincr = (long int) expIncrement;
+//    static double myCounter = 0.0, mySum = 0.0;
+//    thisMethod = ( (i * expIncrement) - halfIncr );
+//    randExpMethod = (unsigned long int) ((log(1.0 - dum)) * (-1000.0 / RECOMBINATION_RATE_PER_KB));
+//    mydiff = (thisMethod - randExpMethod);
+//    if ( thisMethod < nSITES ) {
+//        if ( ((thisMethod - randExpMethod) > myexpincr) || ((thisMethod - randExpMethod) < -myexpincr ) ) {
+//            fprintf(stderr, "\nError in randExpLookup(): \n\tthisMethod = %li, randExpMethod = %li, diff = %li, expIncrement = %lu\n", thisMethod, randExpMethod, mydiff, myexpincr);
+//            exit(-1);
+//        }
+//        myCounter++;
+//        mySum += (double) mydiff;
+//    }
+//    if ( t % 10 == 1 && t <= 101 ) {
+//        if ( t != last_t )  {
+//            last_t = t;
+//            maxPrintTimes = 10;
+//            fprintf(stdout, "\nt = %lu\n", t);
+//        }
+//        if ( maxPrintTimes ) {
+//            maxPrintTimes--;
+//            fprintf(stdout, "\tdum = %f, i = %lu, *testVal = %f, this = %li, randExp() = %li, diff = %li, avgDev = %f\n", dum, i, *testVal, thisMethod, randExpMethod, mydiff, mySum/myCounter );
+//        }
+//        // with algorithms as written above, this check confirms that the average deviation between
+//        // this method and the randExp() method is 0.5, which is exactly what we expect if this
+//        // algorithm is working properly, because the randExp() results were simply truncated (floored)
+//        // to the integer component
+//    }
 #endif
     
     

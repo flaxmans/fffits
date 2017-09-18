@@ -96,7 +96,6 @@ int main(int argc, char *argv[])
 {
     unsigned int RNG_SEED;
 	char *progname = argv[0];
-    unsigned long int i, dumval;
 	
 	RNG_SEED = initializationSteps(argc, argv, progname);
     
@@ -105,11 +104,6 @@ int main(int argc, char *argv[])
         migration();
         
         reproduction(); // includes fecundity selection
-        
-        for ( i = 0; i < 20; i++ ) {
-            dumval = randExpLookup();
-        }
-        
         
         if ( N == 0 ) {
             // all extinct
