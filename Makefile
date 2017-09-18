@@ -16,8 +16,8 @@ else
 endif
 
 # rule to build fffits
-$(TARGET) : $(TARGET).o initialization.o dataRecording.o expLookup.o
-	$(CC) $(CFLAGS) $(GSLFLAGS) $(LIBFLAGS) -o $(TARGET) initialization.o dataRecording.o expLookup.o $(TARGET).o
+$(TARGET) : $(TARGET).o initialization.o dataRecording.o
+	$(CC) $(CFLAGS) $(GSLFLAGS) $(LIBFLAGS) -o $(TARGET) initialization.o dataRecording.o $(TARGET).o
 
 # building a .o from a .c
 .c.o:
@@ -29,5 +29,4 @@ clean :
 	rm -f $(TARGET).o
 	rm -f initialization.o
 	rm -f dataRecording.o
-	rm -f expLookup.o
  
