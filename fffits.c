@@ -11,6 +11,7 @@
 #include <string.h>
 #include <string.h>
 #include "fffits.h"
+#include "pcg-c-0.94/include/pcg_variants.h"
 
 #include <gsl_rng.h>            // gnu scientific library //
 #include <gsl_randist.h>        // gnu scientific library //

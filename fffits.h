@@ -51,6 +51,7 @@
 /*  ************* FUNCTION DECLARATIONS ***************** */
 // initialization functions
 void initializeRNG(unsigned int RNG_SEED);
+void initializePCGRNG(unsigned int RNG_SEED);
 int initializationSteps( int argc, char *argv[], char *progname );
 double randExp(double meanValue);
 unsigned readInParametersFromFile(void);

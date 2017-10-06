@@ -11,6 +11,7 @@
 #include <string.h>
 #include <limits.h>
 #include "fffits.h"
+#include "pcg-c-0.94/include/pcg_variants.h"
 
 #include <gsl_rng.h>            // gnu scientific library //
 #include <gsl_randist.h>
@@ -47,6 +48,7 @@ int initializationSteps( int argc, char *argv[], char *progname )
 	
 	// initialization steps
 	initializeRNG(RNG_SEED);
+    initializePCGRNG(RNG_SEED);
 	setUpGenome();
 	setUpPopulations();
 	setUpDataFiles();
@@ -58,7 +60,6 @@ int initializationSteps( int argc, char *argv[], char *progname )
 
 void initializeRNG(unsigned int RNG_SEED)
 {
-	int i;
 	
 	// initialize random number generator
 	// T and r are global variables for the RNG state and calls
@@ -67,8 +68,20 @@ void initializeRNG(unsigned int RNG_SEED)
 	rngState = gsl_rng_alloc(rngType);
 	gsl_rng_set(rngState, RNG_SEED);
 	
-	//    for ( i = 0; i < 10; i++ )
-	//        printf("%f\n", gsl_rng_uniform(rngState) );
+    // int i;
+	// for ( i = 0; i < 10; i++ )
+	//     printf("%f\n", gsl_rng_uniform(rngState) );
+}
+
+
+void initializePCGRNG(unsigned int RNG_SEED)
+{
+    pcg32_srandom(42u, RNG_SEED);
+    
+    printf("  32bit:");
+    for (int i = 0; i < 6; ++i)
+        printf("%u\t", pcg32_random());
+    printf("\n");
 }
 
 
