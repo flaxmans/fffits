@@ -127,7 +127,7 @@ extern FILE *dataFile_PiAndDXY;
 // visible to the profilers as if the code had separate functions.
 // NOTE: this can be tripped up by optimizer inlining of functions.
 // Comment out first line and uncomment second one to turn off
-#define MARK(K) asm("M."#K":");
+//#define MARK(K) asm("M."#K":");
 //#define MARK(K)
 
 

@@ -11,7 +11,7 @@
 #include <string.h>
 #include <string.h>
 #include "fffits.h"
-#include "pcg-c-0.94/include/pcg_variants.h"
+#include "pcg-c-master/include/pcg_variants.h"
 
 #include <gsl_rng.h>            // gnu scientific library //
 #include <gsl_randist.h>        // gnu scientific library //
@@ -754,7 +754,7 @@ void makeOneOffspring(long int momIndex, long int dadIndex, short int *offGTpt, 
 	
     for ( i = 0; i < 2; i++ ) {
  
-MARK(MOO_START)
+//MARK(MOO_START)
         
         sipt = offGTpt + i; // which haploid set in offspring
 		
@@ -773,7 +773,7 @@ MARK(MOO_START)
             }
         }
         
-MARK(MOO_FIRSTLOCUS)
+//MARK(MOO_FIRSTLOCUS)
         
         // which parent
         if ( i == 0 )
@@ -803,7 +803,7 @@ MARK(MOO_FIRSTLOCUS)
 
         for ( j = 0; j < nSitesInOffspring; j++ ) {
             focalSite = focalSites[j];
-MARK(MOO_STARTFORLOOP)
+//MARK(MOO_STARTFORLOOP)
             // now copy alleles from parents to offspring
             //if ( *offsp_ls == LOCUS_STATUS_VARIABLE_IN_PARENTS || *offsp_ls == LOCUS_STATUS_VARIABLE_PLUS_MUT ) {
 			if ( *cfppt ) {
@@ -812,7 +812,7 @@ MARK(MOO_STARTFORLOOP)
 				
                 // first handle recombination and independent assortment
                 if ( thisSiteLG != currentLinkageGroup ) {
-MARK(MOO_INSIDE_IF)
+//MARK(MOO_INSIDE_IF)
                     // new "chromosome"; need to implement independent assortment
                     if ( gsl_rng_uniform(rngState) < 0.5 ) {
                         // flip to other chromosome in parent
@@ -836,7 +836,7 @@ MARK(MOO_INSIDE_IF)
                     nextRecombinationSpot = focalSite + ((unsigned long int) randExp( meanRecombDistance ));
                 }
                 else if ( focalSite > nextRecombinationSpot ) {
-MARK(MOO_INSIDE_ELSEIF)
+//MARK(MOO_INSIDE_ELSEIF)
                     // implement recombination within a linkage group
                     do {
                         // do-while loop allows for multiple recombination events
@@ -851,10 +851,10 @@ MARK(MOO_INSIDE_ELSEIF)
                         nextRecombinationSpot += ((unsigned long int) randExp( meanRecombDistance ));
                     } while ( focalSite > nextRecombinationSpot );
                 }
-MARK(MOO_POINTERBUSINESS)
+//MARK(MOO_POINTERBUSINESS)
                 *sipt = *parentPoint;
                 parentalLocusCounter++;  // one more parental locus taken care of
-MARK(MOO_WHILELOOP)
+//MARK(MOO_WHILELOOP)
                 if ( j < (nSitesInOffspring - 1) && parentalLocusCounter < nTrackedSitesInParents ) {
                     //parentalLocusIndexes++; // advance to index of next parental site/locus
 					psspt++; // next skip site bool
@@ -873,7 +873,7 @@ MARK(MOO_WHILELOOP)
                 }
             }
             else {
-MARK(MOO_ELSE)
+//MARK(MOO_ELSE)
                 *sipt = ALLELE_CODE_ANCESTRAL; // just put in the locus as a placeholder; mutations added later
 				// do NOT advance any parent pointers or counters
             }
